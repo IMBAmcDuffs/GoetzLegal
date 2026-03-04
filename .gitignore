@@ -46,3 +46,10 @@ wp-config.php
 # Note: If you wish to whitelist themes,
 # uncomment the next line
 #/wp-content/themes
+
+# Theme build artifacts and dependencies
+wp-content/themes/goetz-legal/node_modules/
+wp-content/themes/goetz-legal/dist/
+wp-content/themes/goetz-legal/vendor/
+wp-content/themes/goetz-legal/package-lock.json
+wp-content/themes/goetz-legal/composer.lock

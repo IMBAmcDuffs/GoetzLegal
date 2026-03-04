@@ -1,0 +1,25 @@
+{
+    "$schema": "https://getcomposer.org/schema.json",
+    "name": "goetz-legal/theme",
+    "description": "Goetz & Goetz Law Firm WordPress theme built on TailPress.",
+    "type": "project",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "TailPress\\": "src/"
+        }
+    },
+    "require": {
+        "php": ">=8.0.2",
+        "tailpress/framework": "^5.0.4",
+        "automattic/jetpack-autoloader": "^2.10"
+    },
+    "require-dev": {
+        "tailpress/cli": "^5.0"
+    },
+    "config": {
+        "allow-plugins": {
+            "automattic/jetpack-autoloader": true
+        }
+    }
+}
