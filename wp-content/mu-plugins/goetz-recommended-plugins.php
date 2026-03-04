@@ -113,10 +113,15 @@ function goetz_legal_plugin_check_notice(): void
         }
     }
 
+    $allowed_html = [
+        'strong' => [],
+        'a'      => ['href' => [], 'class' => []],
+    ];
+
     if (!empty($missing_required)) {
         echo '<div class="notice notice-error"><p><strong>' . esc_html__('Goetz Legal — Required Plugins Missing:', 'goetz-legal') . '</strong></p><ul style="list-style:disc;margin-left:20px;">';
         foreach ($missing_required as $item) {
-            echo '<li>' . $item . '</li>'; // Already escaped above
+            echo '<li>' . wp_kses($item, $allowed_html) . '</li>';
         }
         echo '</ul></div>';
     }
@@ -124,7 +129,7 @@ function goetz_legal_plugin_check_notice(): void
     if (!empty($missing_recommended)) {
         echo '<div class="notice notice-warning is-dismissible"><p><strong>' . esc_html__('Goetz Legal — Recommended Plugins:', 'goetz-legal') . '</strong></p><ul style="list-style:disc;margin-left:20px;">';
         foreach ($missing_recommended as $item) {
-            echo '<li>' . $item . '</li>'; // Already escaped above
+            echo '<li>' . wp_kses($item, $allowed_html) . '</li>';
         }
         echo '</ul></div>';
     }

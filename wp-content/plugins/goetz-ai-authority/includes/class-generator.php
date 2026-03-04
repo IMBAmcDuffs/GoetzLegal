@@ -270,7 +270,11 @@ class Goetz_AI_Authority_Generator
             return true;
         }
 
-        // Fallback: direct write
-        return (bool) @file_put_contents($path, $content);
+        // Fallback: direct write (log failure for debugging)
+        $result = file_put_contents($path, $content);
+        if ($result === false) {
+            error_log(sprintf('[Goetz AI Authority] Failed to write %s — check file permissions on %s', $filename, $path));
+        }
+        return $result !== false;
     }
 }
