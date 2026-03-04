@@ -1,0 +1,32 @@
+@theme {
+    --breakpoint-xs: 480px;
+    --breakpoint-sm: 600px;
+    --breakpoint-md: 782px;
+    --breakpoint-lg: 960px;
+    --breakpoint-xl: 1280px;
+    --breakpoint-2xl: 1440px;
+
+    // Goetz & Goetz Brand Colors
+    --color-primary: var(--wp--preset--color--primary);
+    --color-secondary: var(--wp--preset--color--secondary);
+    --color-dark: var(--wp--preset--color--dark);
+    --color-light: var(--wp--preset--color--light);
+    --color-white: var(--wp--preset--color--white);
+
+    // Typography Sizes
+    --text-xs: var(--wp--preset--font-size--xs, 0.75rem);
+    --text-sm: var(--wp--preset--font-size--sm, 0.875rem);
+    --text-base: var(--wp--preset--font-size--base, 1rem);
+    --text-lg: var(--wp--preset--font-size--lg, 1.125rem);
+    --text-xl: var(--wp--preset--font-size--xl, 1.25rem);
+    --text-2xl: var(--wp--preset--font-size--2-xl, 1.5rem);
+    --text-3xl: var(--wp--preset--font-size--3-xl, 1.875rem);
+    --text-4xl: var(--wp--preset--font-size--4-xl, 2.25rem);
+    --text-5xl: var(--wp--preset--font-size--5-xl, 3rem);
+    --text-6xl: var(--wp--preset--font-size--6-xl, 3.75rem);
+
+    // Custom Font Families
+    --font-heading: 'Playfair Display', Georgia, serif;
+    --font-body: 'Lato', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-ui: 'Roboto', system-ui, sans-serif;
+}

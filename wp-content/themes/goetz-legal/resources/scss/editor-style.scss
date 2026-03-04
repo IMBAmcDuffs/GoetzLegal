@@ -1,0 +1,29 @@
+@import 'tailwindcss';
+@import './theme.scss';
+@import './custom.scss';
+
+h1 {
+    @apply text-3xl mb-8;
+    font-family: var(--font-heading);
+    color: var(--color-primary);
+}
+
+.entry-content,
+.block-editor-block-list__layout {
+    font-family: var(--font-body);
+}
+
+/*
+  The default border color has changed to `currentColor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+*/
+@layer base {
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--color-gray-200, currentColor);
+    }
+}
