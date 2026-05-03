@@ -1,25 +1,38 @@
-# Goetz Legal WordPress Theme Deployment
+# Goetz Legal WordPress Site
 
 ## Project Structure
 
-This project is a WordPress theme built with TailPress and Tailwind CSS. The theme files are located in `wp-content/themes/goetz-legal/`.
+This project is a WordPress site using the Tailpress theme with Gutenberg editor capabilities. The structure is:
+
+```
+.
+├── wp-content/
+│   ├── themes/goetz-legal/
+│   │   ├── package.json
+│   │   ├── tsconfig.json
+│   │   └── resources/
+│   │       └── ts/
+│   │           └── app.ts
+│   └── plugins/
+├── .bobo/
+│   └── deploy.json
+└── Dockerfile
+```
 
 ## Prerequisites
 
-- Node.js 20+ (for development)
-- PHP 7.4+ (for WordPress)
-- MySQL 5.7+ (for WordPress database)
+- Docker engine
+- Node.js 20+
+- npm or yarn
 
 ## Install Commands
 
 ```bash
-# Install theme dependencies
+# Install Node.js dependencies
 npm install
 
 # Install WordPress dependencies
-wp core download --path=/var/www/html
-wp config create --dbname=wordpress --dbuser=root --dbpass=password --dbhost=mysql
-wp core install --url=http://localhost --title=GoetzLegal --admin_user=admin --admin_password=password --admin_email=admin@example.com
+composer install
 ```
 
 ## Build Commands
@@ -35,37 +48,39 @@ npm run build
 # Start development server
 npm run dev
 
-# For production, WordPress handles serving
+# Start production server
+npm start
 ```
 
 ## Ports
 
-- 3000: Development server (Vite)
-- 80: WordPress web server
+- **Frontend**: 3000
+- **WordPress Admin**: 8000
 
 ## Dockerfile
 
 ```dockerfile
-FROM wordpress:6.4-php8.2
+FROM wordpress:6.4-php8.2-apache
 
-# Install Node.js for theme building
+# Install Node.js and npm
 RUN apt-get update && apt-get install -y curl gnupg && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs
 
-# Copy theme files
-COPY wp-content/themes/goetz-legal/ /var/www/html/wp-content/themes/goetz-legal/
+# Copy WordPress files
+COPY . /var/www/html
 
-# Install theme dependencies
-RUN cd /var/www/html/wp-content/themes/goetz-legal && npm install
+# Install Node.js dependencies
+WORKDIR /var/www/html
+RUN npm install
 
-# Build theme assets
-RUN cd /var/www/html/wp-content/themes/goetz-legal && npm run build
-
-# Set proper permissions
-RUN chown -R www-data:www-data /var/www/html/wp-content/themes/goetz-legal
+# Install WP-CLI
+RUN curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar && \
+    chmod +x wp-cli.phar && \
+    mv wp-cli.phar /usr/local/bin/wp
 
 EXPOSE 80
+CMD ["apache2-foreground"]
 ```
 
 ## BOBO Structured Deploy Contract
@@ -73,39 +88,14 @@ EXPOSE 80
 ```bobo-deploy
 {
   "version": 1,
-  "app": {
-    "port": 80,
-    "health_path": "/wp-admin/",
-    "docs_path": "/wp-admin/"
-  },
-  "env": {
-    "WP_ENV": "production",
-    "DB_HOST": "{{service:mysql}}:3306",
-    "DB_NAME": "wordpress",
-    "DB_USER": "wordpress",
-    "DB_PASSWORD": "password"
-  },
+  "app": { "port": 80, "health_path": "/" },
+  "env": { },
   "services": [
-    {
-      "name": "mysql",
-      "type": "mysql",
-      "image": "mysql:8",
-      "internal_port": "3306/tcp",
-      "env": {
-        "MYSQL_ROOT_PASSWORD": "password",
-        "MYSQL_DATABASE": "wordpress",
-        "MYSQL_USER": "wordpress",
-        "MYSQL_PASSWORD": "password"
-      }
-    }
+    { "name": "mysql", "type": "mysql", "image": "mysql:8", "internal_port": "3306/tcp" }
   ],
   "handoff": {
     "frontend_url": "assigned by BOBO managed staging on port 80",
-    "verification": [
-      "GET / returns 200",
-      "GET /wp-admin/ returns 200",
-      "Theme is active and functional"
-    ]
+    "verification": ["GET / returns 200", "GET /wp-admin/ returns 200"]
   }
 }
 ```
