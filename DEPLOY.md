@@ -1,27 +1,25 @@
-# Goetz Legal WordPress Site
+# Goetz Legal WordPress Theme Deployment
 
 ## Project Structure
 
-This repository contains a WordPress site with:
-- `wp-content/` - WordPress core and plugin files
-- `wp-content/themes/goetz-legal/` - Custom Tailpress theme
-- `wp-content/plugins/` - WordPress plugins directory
+This project is a WordPress theme built with TailPress and Tailwind CSS. The theme files are located in `wp-content/themes/goetz-legal/`.
 
 ## Prerequisites
 
-- Docker engine
-- Docker Compose
-- Node.js (for theme development)
+- Node.js 20+ (for development)
+- PHP 7.4+ (for WordPress)
+- MySQL 5.7+ (for WordPress database)
 
 ## Install Commands
 
 ```bash
-# Install WordPress dependencies
+# Install theme dependencies
 npm install
 
-# Install theme dependencies
-cd wp-content/themes/goetz-legal
-npm install
+# Install WordPress dependencies
+wp core download --path=/var/www/html
+wp config create --dbname=wordpress --dbuser=root --dbpass=password --dbhost=mysql
+wp core install --url=http://localhost --title=GoetzLegal --admin_user=admin --admin_password=password --admin_email=admin@example.com
 ```
 
 ## Build Commands
@@ -34,40 +32,38 @@ npm run build
 ## Run Commands
 
 ```bash
-# Start development environment
-docker-compose up
+# Start development server
+npm run dev
+
+# For production, WordPress handles serving
 ```
 
 ## Ports
 
-- WordPress: 8080
-- PHPMyAdmin: 8081
+- 3000: Development server (Vite)
+- 80: WordPress web server
 
 ## Dockerfile
 
 ```dockerfile
-FROM wordpress:6.4-php8.2-apache
+FROM wordpress:6.4-php8.2
 
-# Install required PHP extensions
-RUN docker-php-ext-install mysqli pdo_mysql
+# Install Node.js for theme building
+RUN apt-get update && apt-get install -y curl gnupg && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs
 
-# Install WP-CLI
-RUN curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar && \
-    chmod +x wp-cli.phar && \
-    mv wp-cli.phar /usr/local/bin/wp
+# Copy theme files
+COPY wp-content/themes/goetz-legal/ /var/www/html/wp-content/themes/goetz-legal/
 
-# Copy WordPress configuration
-COPY ./wp-config.php /var/www/html/wp-config.php
+# Install theme dependencies
+RUN cd /var/www/html/wp-content/themes/goetz-legal && npm install
 
-# Copy plugins
-COPY ./wp-content/plugins/ /var/www/html/wp-content/plugins/
+# Build theme assets
+RUN cd /var/www/html/wp-content/themes/goetz-legal && npm run build
 
-# Copy theme
-COPY ./wp-content/themes/goetz-legal/ /var/www/html/wp-content/themes/goetz-legal/
-
-# Install and activate required plugins
-RUN wp plugin install yoast-seo --activate --allow-root --path=/var/www/html && \
-    wp plugin install forminator --activate --allow-root --path=/var/www/html
+# Set proper permissions
+RUN chown -R www-data:www-data /var/www/html/wp-content/themes/goetz-legal
 
 EXPOSE 80
 ```
@@ -77,14 +73,39 @@ EXPOSE 80
 ```bobo-deploy
 {
   "version": 1,
-  "app": { "port": 80, "health_path": "/wp-admin/" },
-  "env": { "WP_ENV": "development" },
+  "app": {
+    "port": 80,
+    "health_path": "/wp-admin/",
+    "docs_path": "/wp-admin/"
+  },
+  "env": {
+    "WP_ENV": "production",
+    "DB_HOST": "{{service:mysql}}:3306",
+    "DB_NAME": "wordpress",
+    "DB_USER": "wordpress",
+    "DB_PASSWORD": "password"
+  },
   "services": [
-    { "name": "mysql", "type": "mysql", "image": "mysql:8", "internal_port": "3306/tcp" }
+    {
+      "name": "mysql",
+      "type": "mysql",
+      "image": "mysql:8",
+      "internal_port": "3306/tcp",
+      "env": {
+        "MYSQL_ROOT_PASSWORD": "password",
+        "MYSQL_DATABASE": "wordpress",
+        "MYSQL_USER": "wordpress",
+        "MYSQL_PASSWORD": "password"
+      }
+    }
   ],
   "handoff": {
     "frontend_url": "assigned by BOBO managed staging on port 80",
-    "verification": ["GET /wp-admin/ returns 200", "wp plugin list shows yoast-seo and forminator installed"]
+    "verification": [
+      "GET / returns 200",
+      "GET /wp-admin/ returns 200",
+      "Theme is active and functional"
+    ]
   }
 }
 ```

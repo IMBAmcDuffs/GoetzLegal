@@ -1,12 +1,37 @@
 {
   "version": 1,
-  "app": { "port": 80, "health_path": "/wp-admin/" },
-  "env": { "WP_ENV": "development" },
+  "app": {
+    "port": 80,
+    "health_path": "/wp-admin/",
+    "docs_path": "/wp-admin/"
+  },
+  "env": {
+    "WP_ENV": "production",
+    "DB_HOST": "{{service:mysql}}:3306",
+    "DB_NAME": "wordpress",
+    "DB_USER": "wordpress",
+    "DB_PASSWORD": "password"
+  },
   "services": [
-    { "name": "mysql", "type": "mysql", "image": "mysql:8", "internal_port": "3306/tcp" }
+    {
+      "name": "mysql",
+      "type": "mysql",
+      "image": "mysql:8",
+      "internal_port": "3306/tcp",
+      "env": {
+        "MYSQL_ROOT_PASSWORD": "password",
+        "MYSQL_DATABASE": "wordpress",
+        "MYSQL_USER": "wordpress",
+        "MYSQL_PASSWORD": "password"
+      }
+    }
   ],
   "handoff": {
     "frontend_url": "assigned by BOBO managed staging on port 80",
-    "verification": ["GET /wp-admin/ returns 200", "wp plugin list shows yoast-seo and forminator installed"]
+    "verification": [
+      "GET / returns 200",
+      "GET /wp-admin/ returns 200",
+      "Theme is active and functional"
+    ]
   }
 }
