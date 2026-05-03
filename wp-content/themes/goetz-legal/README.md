@@ -1,91 +1,70 @@
-# Goetz Legal — WordPress Theme
+# Goetz & Goetz Law Firm WordPress Theme
 
-A TailPress 5.x WordPress theme for Goetz & Goetz Law Firm, built with **Tailwind CSS 4**, **SCSS**, and **TypeScript**.
+This theme is built on TailPress with Tailwind CSS and is optimized for cross-browser compatibility and responsive design.
+
+## Features
+
+- Responsive design that works across all modern browsers
+- Cross-browser compatibility fixes for older browsers
+- Mobile-first approach with progressive enhancement
+- SEO optimized
+
+## Cross-Browser Compatibility Fixes
+
+This theme includes fixes for common cross-browser compatibility issues:
+
+1. **CSS Box-sizing**: Ensures consistent box-model behavior across browsers
+2. **Flexbox Fallbacks**: Provides fallbacks for older browsers that don't support flexbox
+3. **Form Element Styling**: Normalizes form elements across browsers
+4. **Font Rendering**: Improves font rendering consistency
+5. **Grid Support**: Adds fallbacks for CSS Grid in older browsers
+
+## Responsive Design Implementation
+
+The theme follows a mobile-first responsive design approach:
+
+1. **Mobile-First**: Starts with mobile styles and enhances for larger screens
+2. **Flexible Grid**: Uses CSS Grid and Flexbox for responsive layouts
+3. **Media Queries**: Implements responsive breakpoints for all device sizes
+4. **Image Handling**: Responsive images that scale properly
+
+## Browser Support
+
+This theme supports:
+
+- Chrome (latest)
+- Firefox (latest)
+- Safari (latest)
+- Edge (latest)
+- Internet Explorer 11 (with polyfills)
 
 ## Development
 
+To build the theme:
+
 ```bash
-# Install dependencies
-composer install
-npm install
-
-# Development server (HMR on port 3000)
-npm run dev
-
-# Production build
 npm run build
 ```
 
-## Build Output
+To run in development mode:
 
-Production assets are compiled to `dist/` with a Vite manifest for cache-busting:
+```bash
+npm run dev
+```
 
-| Entry | Output |
-|-------|--------|
-| `resources/ts/app.ts` | `dist/assets/app-[hash].js` |
-| `resources/scss/app.scss` | `dist/assets/app-[hash].css` |
-| `resources/scss/editor-style.scss` | `dist/assets/editor-style-[hash].css` |
+## Testing
 
-## Design Tokens
+For cross-browser compatibility testing, ensure to test on:
 
-| Token | Value | CSS Variable |
-|-------|-------|-------------|
-| Primary | `#0F3460` (Navy) | `--color-primary` |
-| Secondary | `#D4AF37` (Gold) | `--color-secondary` |
-| Dark | `#1A1A2E` | `--color-dark` |
-| Light | `#F5F5F5` | `--color-light` |
-| Heading Font | Playfair Display | `--font-heading` |
-| Body Font | Lato | `--font-body` |
-| UI Font | Roboto | `--font-ui` |
+- Chrome (latest)
+- Firefox (latest)
+- Safari (latest)
+- Edge (latest)
+- Internet Explorer 11 (if required)
 
-## Page Templates
+Responsive design should be tested at:
 
-| Template | File | Usage |
-|----------|------|-------|
-| Homepage | `page-templates/template-home.php` | Front page with hero, practice areas, attorneys, CTA |
-| Attorneys | `page-templates/template-attorneys.php` | Attorney profiles grid |
-| Practice Areas | `page-templates/template-practice-areas.php` | Practice area listing |
-| Contact | `page-templates/template-contact.php` | Contact form + info |
-| About | `page-templates/template-about.php` | Firm history |
-| Resources | `page-templates/template-resources.php` | Legal resource links |
-
-## Custom Post Types
-
-- **Attorney** (`attorney`) — Attorney bios at `/attorneys/`
-- **Practice Area** (`practice_area`) — Practice areas at `/practice-areas/`
-
-## Performance Features
-
-Built-in optimizations in `functions.php`:
-
-- Preconnect hints for Google Fonts
-- Script deferral for non-critical JS
-- WordPress emoji script removal
-- Query string removal from static assets
-- Clean `<head>` (no RSD, WLW, generator tags)
-- Post revision limit (5)
-
-## Extending
-
-### Adding a New Page Template
-
-1. Create `page-templates/template-yourpage.php`
-2. Add the template header:
-   ```php
-   <?php
-   /**
-    * Template Name: Your Page
-    * Template Post Type: page
-    */
-   ```
-3. Use `get_header()` / `get_footer()` and Tailwind classes
-
-### Adding a New Custom Post Type
-
-Add to `functions.php` inside `goetz_legal_register_post_types()` following the existing `attorney` / `practice_area` pattern.
-
-### Adding New SCSS
-
-1. Create your file in `resources/scss/`
-2. Import it in `resources/scss/app.scss`
-3. Run `npm run build` to compile
+- Mobile (320px)
+- Tablet (768px)
+- Desktop (1024px)
+- Large Desktop (1200px)
