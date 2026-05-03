@@ -1,35 +1,12 @@
 {
   "version": 1,
-  "app": {
-    "port": 80,
-    "health_path": "/wp-admin/install.php"
-  },
-  "env": {
-    "WORDPRESS_DB_HOST": "{{service:mysql}}:3306",
-    "WORDPRESS_DB_NAME": "wordpress",
-    "WORDPRESS_DB_USER": "wp_user",
-    "WORDPRESS_DB_PASSWORD": "wp_password"
-  },
+  "app": { "port": 80, "health_path": "/wp-admin/" },
+  "env": { "WP_ENV": "development" },
   "services": [
-    {
-      "name": "mysql",
-      "type": "mariadb",
-      "image": "mariadb:10.11",
-      "internal_port": "3306/tcp",
-      "env": {
-        "MYSQL_ROOT_PASSWORD": "root_password",
-        "MYSQL_DATABASE": "wordpress",
-        "MYSQL_USER": "wp_user",
-        "MYSQL_PASSWORD": "wp_password"
-      }
-    }
+    { "name": "mysql", "type": "mysql", "image": "mysql:8", "internal_port": "3306/tcp" }
   ],
   "handoff": {
     "frontend_url": "assigned by BOBO managed staging on port 80",
-    "verification": [
-      "GET /wp-admin/install.php returns 200",
-      "GET / returns 200",
-      "WordPress core version check via WP-CLI"
-    ]
+    "verification": ["GET /wp-admin/ returns 200", "wp plugin list shows yoast-seo and forminator installed"]
   }
 }

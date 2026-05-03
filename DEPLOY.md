@@ -1,32 +1,17 @@
-# Goetz Legal WordPress Staging Environment
+# Goetz Legal WordPress Site
 
 ## Project Structure
 
-```
-.
-├── wp-content/
-│   ├── themes/goetz-legal/
-│   │   ├── style.css
-│   │   ├── functions.php
-│   │   ├── package.json
-│   │   ├── tsconfig.json
-│   │   └── resources/
-│   │       └── ts/
-│   │           └── app.ts
-│   └── plugins/
-├── .bobo/
-│   └── deploy.json
-├── docker-compose.yml
-├── Dockerfile
-└── README.md
-```
+This repository contains a WordPress site with:
+- `wp-content/` - WordPress core and plugin files
+- `wp-content/themes/goetz-legal/` - Custom Tailpress theme
+- `wp-content/plugins/` - WordPress plugins directory
 
 ## Prerequisites
 
-- Docker Engine v20.10+
-- Docker Compose v2.0+
-- Node.js v18+ (for theme development)
-- npm v8+
+- Docker engine
+- Docker Compose
+- Node.js (for theme development)
 
 ## Install Commands
 
@@ -34,8 +19,9 @@
 # Install WordPress dependencies
 npm install
 
-# Install PHP dependencies (if using composer)
-composer install
+# Install theme dependencies
+cd wp-content/themes/goetz-legal
+npm install
 ```
 
 ## Build Commands
@@ -43,55 +29,47 @@ composer install
 ```bash
 # Build theme assets
 npm run build
-
-# Build WordPress with plugins
-npm run build:wp
 ```
 
 ## Run Commands
 
 ```bash
 # Start development environment
-npm run dev
-
-# Start production environment
-npm run start
+docker-compose up
 ```
 
 ## Ports
 
-- **WordPress Frontend**: 3000
-- **WordPress Admin**: 3000 (same port, different paths)
-- **Database**: 3306 (via Docker service)
+- WordPress: 8080
+- PHPMyAdmin: 8081
 
 ## Dockerfile
 
 ```dockerfile
-FROM wordpress:6.7-php8.3-apache
+FROM wordpress:6.4-php8.2-apache
 
 # Install required PHP extensions
 RUN docker-php-ext-install mysqli pdo_mysql
-
-# Copy theme files
-COPY wp-content/themes/goetz-legal /var/www/html/wp-content/themes/goetz-legal
-
-# Copy plugins
-COPY wp-content/plugins/ /var/www/html/wp-content/plugins/
 
 # Install WP-CLI
 RUN curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar && \
     chmod +x wp-cli.phar && \
     mv wp-cli.phar /usr/local/bin/wp
 
-# Set permissions
-RUN chown -R www-data:www-data /var/www/html/wp-content/themes/goetz-legal
+# Copy WordPress configuration
+COPY ./wp-config.php /var/www/html/wp-config.php
 
-# Expose port
+# Copy plugins
+COPY ./wp-content/plugins/ /var/www/html/wp-content/plugins/
+
+# Copy theme
+COPY ./wp-content/themes/goetz-legal/ /var/www/html/wp-content/themes/goetz-legal/
+
+# Install and activate required plugins
+RUN wp plugin install yoast-seo --activate --allow-root --path=/var/www/html && \
+    wp plugin install forminator --activate --allow-root --path=/var/www/html
+
 EXPOSE 80
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost/wp-admin/install.php || exit 1
 ```
 
 ## BOBO Structured Deploy Contract
@@ -99,37 +77,14 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
 ```bobo-deploy
 {
   "version": 1,
-  "app": {
-    "port": 80,
-    "health_path": "/wp-admin/install.php"
-  },
-  "env": {
-    "WORDPRESS_DB_HOST": "{{service:mysql}}:3306",
-    "WORDPRESS_DB_NAME": "wordpress",
-    "WORDPRESS_DB_USER": "wp_user",
-    "WORDPRESS_DB_PASSWORD": "wp_password"
-  },
+  "app": { "port": 80, "health_path": "/wp-admin/" },
+  "env": { "WP_ENV": "development" },
   "services": [
-    {
-      "name": "mysql",
-      "type": "mariadb",
-      "image": "mariadb:10.11",
-      "internal_port": "3306/tcp",
-      "env": {
-        "MYSQL_ROOT_PASSWORD": "root_password",
-        "MYSQL_DATABASE": "wordpress",
-        "MYSQL_USER": "wp_user",
-        "MYSQL_PASSWORD": "wp_password"
-      }
-    }
+    { "name": "mysql", "type": "mysql", "image": "mysql:8", "internal_port": "3306/tcp" }
   ],
   "handoff": {
     "frontend_url": "assigned by BOBO managed staging on port 80",
-    "verification": [
-      "GET /wp-admin/install.php returns 200",
-      "GET / returns 200",
-      "WordPress core version check via WP-CLI"
-    ]
+    "verification": ["GET /wp-admin/ returns 200", "wp plugin list shows yoast-seo and forminator installed"]
   }
 }
 ```
