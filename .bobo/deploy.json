@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "app": { "port": 80, "health_path": "/" },
+  "env": { },
+  "services": [
+    { "name": "mysql", "type": "mysql", "image": "mysql:8", "internal_port": "3306/tcp" }
+  ],
+  "handoff": {
+    "frontend_url": "assigned by BOBO managed staging on port 80",
+    "verification": ["GET / returns 200", "GET /wp-admin/ returns 200"]
+  }
+}
