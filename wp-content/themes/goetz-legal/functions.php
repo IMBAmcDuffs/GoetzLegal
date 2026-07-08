@@ -9,6 +9,46 @@ if (is_file(__DIR__.'/vendor/autoload_packages.php')) {
     require_once __DIR__.'/vendor/autoload_packages.php';
 }
 
+define('GOETZ_LEGAL_PHONE_DISPLAY', '(239) 936-2841');
+define('GOETZ_LEGAL_PHONE_TEL', '+12399362841');
+define('GOETZ_LEGAL_EMAIL', 'info@goetzlegal.com');
+define('GOETZ_LEGAL_ADDRESS_LINE_1', '33 Barkley Cir Ste 100');
+define('GOETZ_LEGAL_ADDRESS_LINE_2', 'Fort Myers, FL 33907');
+
+/**
+ * Return an imported media URL by basename, falling back to the live asset URL.
+ */
+function goetz_legal_asset_url(string $basename, string $fallback_url = ''): string
+{
+    static $cache = [];
+
+    $cache_key = $basename . '|' . $fallback_url;
+    if (isset($cache[$cache_key])) {
+        return $cache[$cache_key];
+    }
+
+    global $wpdb;
+
+    $attachment_id = (int) $wpdb->get_var(
+        $wpdb->prepare(
+            "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_wp_attached_file' AND meta_value LIKE %s ORDER BY post_id DESC LIMIT 1",
+            '%' . $wpdb->esc_like($basename)
+        )
+    );
+
+    if ($attachment_id) {
+        $url = wp_get_attachment_url($attachment_id);
+        if ($url) {
+            $cache[$cache_key] = $url;
+            return $url;
+        }
+    }
+
+    $cache[$cache_key] = $fallback_url;
+
+    return $fallback_url;
+}
+
 /**
  * Initialize the TailPress theme framework.
  */
@@ -46,52 +86,58 @@ function goetz_legal(): TailPress\Framework\Theme
         ]));
 }
 
-goetz_legal();
+if (class_exists(TailPress\Framework\Theme::class)) {
+    goetz_legal();
+} else {
+    add_action('after_setup_theme', static function (): void {
+        add_theme_support('title-tag');
+        add_theme_support('custom-logo');
+        add_theme_support('post-thumbnails');
+        add_theme_support('align-wide');
+        add_theme_support('wp-block-styles');
+        add_theme_support('responsive-embeds');
+
+        register_nav_menus([
+            'primary' => __('Primary Menu', 'goetz-legal'),
+            'footer'  => __('Footer Menu', 'goetz-legal'),
+        ]);
+    });
+}
 
 /**
- * Register custom post types for Attorneys and Practice Areas.
+ * Return the live-site navigation structure used as a fallback and by imports.
+ *
+ * @return array<int, array{label: string, url: string}>
  */
-function goetz_legal_register_post_types(): void
+function goetz_legal_nav_items(): array
 {
-    register_post_type('attorney', [
-        'labels' => [
-            'name'               => __('Attorneys', 'goetz-legal'),
-            'singular_name'      => __('Attorney', 'goetz-legal'),
-            'add_new_item'       => __('Add New Attorney', 'goetz-legal'),
-            'edit_item'          => __('Edit Attorney', 'goetz-legal'),
-            'view_item'          => __('View Attorney', 'goetz-legal'),
-            'all_items'          => __('All Attorneys', 'goetz-legal'),
-            'search_items'       => __('Search Attorneys', 'goetz-legal'),
-            'not_found'          => __('No attorneys found.', 'goetz-legal'),
-        ],
-        'public'             => true,
-        'has_archive'        => true,
-        'rewrite'            => ['slug' => 'attorneys'],
-        'supports'           => ['title', 'editor', 'thumbnail', 'excerpt', 'custom-fields'],
-        'menu_icon'          => 'dashicons-businessperson',
-        'show_in_rest'       => true,
-    ]);
-
-    register_post_type('practice_area', [
-        'labels' => [
-            'name'               => __('Practice Areas', 'goetz-legal'),
-            'singular_name'      => __('Practice Area', 'goetz-legal'),
-            'add_new_item'       => __('Add New Practice Area', 'goetz-legal'),
-            'edit_item'          => __('Edit Practice Area', 'goetz-legal'),
-            'view_item'          => __('View Practice Area', 'goetz-legal'),
-            'all_items'          => __('All Practice Areas', 'goetz-legal'),
-            'search_items'       => __('Search Practice Areas', 'goetz-legal'),
-            'not_found'          => __('No practice areas found.', 'goetz-legal'),
-        ],
-        'public'             => true,
-        'has_archive'        => true,
-        'rewrite'            => ['slug' => 'practice-areas'],
-        'supports'           => ['title', 'editor', 'thumbnail', 'excerpt', 'custom-fields'],
-        'menu_icon'          => 'dashicons-portfolio',
-        'show_in_rest'       => true,
-    ]);
+    return [
+        ['label' => __('Home', 'goetz-legal'), 'url' => home_url('/')],
+        ['label' => __('James L. Goetz', 'goetz-legal'), 'url' => home_url('/james-l-goetz/')],
+        ['label' => __('Gregory W. Goetz', 'goetz-legal'), 'url' => home_url('/gregory-w-goetz/')],
+        ['label' => __('Staff', 'goetz-legal'), 'url' => home_url('/staff/')],
+        ['label' => __('Questions', 'goetz-legal'), 'url' => home_url('/questions/')],
+        ['label' => __('Links', 'goetz-legal'), 'url' => home_url('/links/')],
+        ['label' => __('Contact', 'goetz-legal'), 'url' => home_url('/contact/')],
+    ];
 }
-add_action('init', 'goetz_legal_register_post_types');
+
+/**
+ * Register custom blocks from block.json metadata.
+ */
+function goetz_legal_register_blocks(): void
+{
+    $blocks_dir = __DIR__ . '/blocks';
+
+    if (!is_dir($blocks_dir)) {
+        return;
+    }
+
+    foreach (glob($blocks_dir . '/*/block.json') ?: [] as $metadata_file) {
+        register_block_type(dirname($metadata_file));
+    }
+}
+add_action('init', 'goetz_legal_register_blocks');
 
 /**
  * Enqueue Google Fonts for Playfair Display, Lato, and Roboto.
@@ -106,6 +152,36 @@ function goetz_legal_enqueue_fonts(): void
     );
 }
 add_action('wp_enqueue_scripts', 'goetz_legal_enqueue_fonts');
+
+/**
+ * Redirect the imported source homepage slug to the canonical front page.
+ */
+function goetz_legal_redirect_home_slug(): void
+{
+    global $wp;
+
+    if (isset($wp->request) && untrailingslashit($wp->request) === 'home') {
+        wp_safe_redirect(home_url('/'), 301);
+        exit;
+    }
+}
+add_action('template_redirect', 'goetz_legal_redirect_home_slug');
+
+/**
+ * Add route-specific body classes for pages that use slug-based templates.
+ *
+ * @param array<int, string> $classes Body classes.
+ * @return array<int, string>
+ */
+function goetz_legal_body_classes(array $classes): array
+{
+    if (is_page('contact')) {
+        $classes[] = 'goetz-contact-template';
+    }
+
+    return $classes;
+}
+add_filter('body_class', 'goetz_legal_body_classes');
 
 /**
  * Register widget areas.
@@ -202,6 +278,37 @@ function goetz_legal_defer_scripts(string $tag, string $handle): string
     return str_replace(' src', ' defer src', $tag);
 }
 add_filter('script_loader_tag', 'goetz_legal_defer_scripts', 10, 2);
+
+/**
+ * Add LegalService schema only when Yoast is not handling schema output.
+ */
+function goetz_legal_schema_fallback(): void
+{
+    if (defined('WPSEO_VERSION')) {
+        return;
+    }
+
+    $schema = [
+        '@context' => 'https://schema.org',
+        '@type'    => 'LegalService',
+        'name'     => 'Goetz & Goetz',
+        'url'      => home_url('/'),
+        'telephone'=> GOETZ_LEGAL_PHONE_DISPLAY,
+        'email'    => GOETZ_LEGAL_EMAIL,
+        'address'  => [
+            '@type'           => 'PostalAddress',
+            'streetAddress'   => GOETZ_LEGAL_ADDRESS_LINE_1,
+            'addressLocality' => 'Fort Myers',
+            'addressRegion'   => 'FL',
+            'postalCode'      => '33907',
+            'addressCountry'  => 'US',
+        ],
+        'areaServed' => 'Fort Myers, Florida',
+    ];
+
+    echo '<script type="application/ld+json">' . wp_json_encode($schema) . '</script>' . "\n";
+}
+add_action('wp_head', 'goetz_legal_schema_fallback', 20);
 
 /**
  * Remove unnecessary WordPress header meta tags.

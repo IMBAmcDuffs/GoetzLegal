@@ -6,7 +6,7 @@
     --breakpoint-xl: 1280px;
     --breakpoint-2xl: 1440px;
 
-    // Goetz & Goetz Brand Colors
+    // Goetz & Goetz rebuild colors
     --color-primary: var(--wp--preset--color--primary);
     --color-secondary: var(--wp--preset--color--secondary);
     --color-dark: var(--wp--preset--color--dark);
@@ -26,7 +26,7 @@
     --text-6xl: var(--wp--preset--font-size--6-xl, 3.75rem);
 
     // Custom Font Families
-    --font-heading: 'Playfair Display', Georgia, serif;
-    --font-body: 'Lato', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-heading: 'Roboto', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    --font-body: 'Roboto', 'Helvetica Neue', Helvetica, Arial, sans-serif;
     --font-ui: 'Roboto', system-ui, sans-serif;
 }

@@ -1,0 +1,119 @@
+.goetz-hero {
+  background: #2d2d2d;
+  box-sizing: border-box;
+  color: #fff;
+  box-shadow: 0 0 0 100vmax #2d2d2d;
+  clip-path: inset(0 -100vmax);
+  display: grid;
+  align-items: center;
+  gap: clamp(2rem, 5vw, 4.6rem);
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: clamp(4.5rem, 6.5vw, 6.8rem) 1.5rem clamp(4rem, 5.2vw, 5.4rem);
+}
+
+.goetz-hero__eyebrow {
+  background: #fff;
+  border-radius: 999px;
+  color: #3a3f46;
+  display: inline-flex;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1;
+  margin: 0 0 0.7rem;
+  padding: 6px 14px;
+}
+
+.goetz-hero h1 {
+  color: #fff;
+  font-family: Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: clamp(2.05rem, 3vw, 2.55rem);
+  font-weight: 400;
+  line-height: 1.09;
+  margin: 0 0 1.25rem;
+  max-width: 390px;
+  text-transform: uppercase;
+}
+
+.goetz-hero h1 b,
+.goetz-hero h1 strong {
+  color: #7951a9;
+  font-weight: 700;
+}
+
+.goetz-hero p {
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.55;
+  margin: 0;
+  max-width: 430px;
+}
+
+.goetz-hero .goetz-hero__eyebrow {
+  color: #3a3f46;
+  font-weight: 400;
+}
+
+.goetz-hero__media {
+  justify-self: center;
+  margin: 0;
+  max-width: 410px;
+}
+
+.goetz-hero__media img {
+  aspect-ratio: 1;
+  border-radius: 999px;
+  display: block;
+  object-fit: cover;
+  object-position: center;
+  width: 100%;
+}
+
+.goetz-button {
+  background: #fff;
+  border-radius: 999px;
+  color: #6f7780;
+  display: inline-flex;
+  font-family: Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 19px;
+  font-weight: 400;
+  line-height: 1;
+  margin-top: 2rem;
+  padding: 13px 22px;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.goetz-button:hover,
+.goetz-button:focus-visible {
+  background: #7951a9;
+  color: #fff;
+  text-decoration: none;
+}
+
+@media (min-width: 782px) {
+  .goetz-hero {
+    grid-template-columns: minmax(0, 430px) minmax(280px, 410px);
+    justify-content: center;
+  }
+}
+
+@media (max-width: 781px) {
+  .goetz-hero {
+    text-align: center;
+  }
+
+  .goetz-hero h1,
+  .goetz-hero p {
+    margin-inline: auto;
+  }
+
+  .goetz-hero__media {
+    justify-self: center;
+    max-width: min(100%, 420px);
+    order: -1;
+  }
+}

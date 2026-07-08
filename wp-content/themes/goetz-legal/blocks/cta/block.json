@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "goetz/cta",
+  "title": "Goetz CTA",
+  "category": "theme",
+  "icon": "megaphone",
+  "description": "Reusable consultation CTA.",
+  "textdomain": "goetz-legal",
+  "attributes": {
+    "eyebrow": { "type": "string", "default": "WE ARE AN EXPERIENCED TEAM" },
+    "heading": { "type": "string", "default": "NEED A LAWYER?" },
+    "buttonText": { "type": "string", "default": "Get Consultation" },
+    "buttonUrl": { "type": "string", "default": "/contact/" }
+  },
+  "editorScript": "file:./index.js",
+  "style": "file:./style.css",
+  "viewStyle": "file:./view.css",
+  "viewScript": "file:./view.js",
+  "render": "file:./render.php"
+}
+

@@ -9,24 +9,24 @@
     "color": {
       "palette": [
         {
-          "name": "Primary (Navy)",
+          "name": "Primary",
           "slug": "primary",
-          "color": "#0F3460"
+          "color": "#2D2D2D"
         },
         {
-          "name": "Secondary (Gold)",
+          "name": "Secondary",
           "slug": "secondary",
-          "color": "#D4AF37"
+          "color": "#7851A9"
         },
         {
           "name": "Dark",
           "slug": "dark",
-          "color": "#1A1A2E"
+          "color": "#1F2933"
         },
         {
           "name": "Light",
           "slug": "light",
-          "color": "#F5F5F5"
+          "color": "#F7F7F7"
         },
         {
           "name": "White",
@@ -38,12 +38,12 @@
     "typography": {
       "fontFamilies": [
         {
-          "fontFamily": "'Playfair Display', Georgia, serif",
+          "fontFamily": "'Roboto', 'Helvetica Neue', Helvetica, Arial, sans-serif",
           "name": "Heading",
           "slug": "heading"
         },
         {
-          "fontFamily": "'Lato', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+          "fontFamily": "'Roboto', 'Helvetica Neue', Helvetica, Arial, sans-serif",
           "name": "Body",
           "slug": "body"
         },

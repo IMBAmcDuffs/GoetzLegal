@@ -1,0 +1,71 @@
+.goetz-attorney-card {
+  background: #fff;
+  border: 0;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 12%);
+  display: grid;
+  gap: 1rem;
+  height: 100%;
+  overflow: hidden;
+}
+
+.goetz-attorney-card__image {
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  width: 100%;
+}
+
+.goetz-attorney-card__body {
+  padding: 1.7rem;
+  text-align: center;
+}
+
+.goetz-attorney-card h2 {
+  color: #20242c;
+  font-family: Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 1.65rem;
+  font-weight: 400;
+  line-height: 1.1;
+  margin: 0 0 0.55rem;
+  text-transform: uppercase;
+}
+
+.goetz-attorney-card__role {
+  color: #7951a9;
+  font-weight: 700;
+  margin: 0 0 0.75rem;
+}
+
+.goetz-attorney-card p {
+  color: #20242c;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.goetz-attorney-card__links {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-top: 1.2rem;
+}
+
+.goetz-attorney-card__links a {
+  background: #2d2d2d;
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.65rem 1rem;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.goetz-attorney-card__links a:hover,
+.goetz-attorney-card__links a:focus-visible {
+  background: #7951a9;
+  color: #fff;
+  text-decoration: none;
+}

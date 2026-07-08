@@ -14,72 +14,76 @@
     <link rel="pingback" href="<?php bloginfo('pingback_url'); ?>">
     <?php wp_head(); ?>
 </head>
-<body <?php body_class('bg-white text-gray-900 antialiased font-body'); ?>>
+<body <?php body_class('goetz-site'); ?>>
 <?php do_action('tailpress_site_before'); ?>
 
-<div id="page" class="min-h-screen flex flex-col">
+<div id="page" class="site-page">
     <?php do_action('tailpress_header'); ?>
 
-    <!-- Emergency Banner -->
-    <div class="bg-secondary text-primary text-center py-2 text-sm font-semibold">
-        <div class="container mx-auto px-4">
-            <?php esc_html_e('Need Immediate Legal Help? Call Us 24/7:', 'goetz-legal'); ?>
-            <a href="tel:+12399360066" class="underline hover:no-underline ml-1">(239) 936-0066</a>
-        </div>
-    </div>
-
-    <header class="bg-primary text-white shadow-lg">
-        <div class="container mx-auto px-4 py-4">
-            <div class="md:flex md:justify-between md:items-center">
-                <div class="flex justify-between items-center">
-                    <div>
-                        <?php if (has_custom_logo()): ?>
-                            <?php the_custom_logo(); ?>
-                        <?php else: ?>
-                            <a href="<?php echo esc_url(home_url('/')); ?>" class="!no-underline">
-                                <span class="font-heading text-2xl font-bold text-white tracking-wide">Goetz &amp; Goetz</span>
-                                <span class="block text-secondary text-sm font-light tracking-widest uppercase">Attorneys at Law</span>
-                            </a>
-                        <?php endif; ?>
-                    </div>
-
-                    <?php if (has_nav_menu('primary')): ?>
-                        <div class="md:hidden">
-                            <button type="button" aria-label="<?php esc_attr_e('Toggle navigation', 'goetz-legal'); ?>" id="primary-menu-toggle" class="text-white focus:outline-none">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-                                </svg>
-                            </button>
-                        </div>
-                    <?php endif; ?>
-                </div>
-
-                <div id="primary-navigation" class="hidden md:flex md:bg-transparent gap-6 items-center mt-4 md:mt-0">
-                    <nav>
-                        <?php if (current_user_can('administrator') && !has_nav_menu('primary')): ?>
-                            <a href="<?php echo esc_url(admin_url('nav-menus.php')); ?>" class="text-sm text-white/70"><?php esc_html_e('Edit Menus', 'goetz-legal'); ?></a>
-                        <?php else: ?>
-                            <?php
-                            wp_nav_menu([
-                                'container_id'    => 'primary-menu',
-                                'container_class' => '',
-                                'menu_class'      => 'md:flex md:-mx-4 [&_a]:!no-underline [&_a]:text-white [&_a]:hover:text-secondary [&_a]:transition-colors',
-                                'theme_location'  => 'primary',
-                                'li_class'        => 'md:mx-4',
-                                'fallback_cb'     => false,
-                            ]);
-                            ?>
-                        <?php endif; ?>
-                    </nav>
-
-                    <a href="<?php echo esc_url(home_url('/contact')); ?>" class="inline-flex rounded-full px-5 py-2 text-sm font-semibold bg-secondary text-primary hover:bg-secondary/90 transition !no-underline">
-                        <?php esc_html_e('Free Consultation', 'goetz-legal'); ?>
+    <header class="site-header" role="banner">
+        <div class="site-header__top">
+            <div class="site-header__inner">
+                <div class="site-contact-links" aria-label="<?php esc_attr_e('Contact information', 'goetz-legal'); ?>">
+                    <a href="tel:<?php echo esc_attr(GOETZ_LEGAL_PHONE_TEL); ?>">
+                        <span class="site-contact-links__icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" focusable="false"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1C10.61 21 3 13.39 3 4c0-.55.45-1 1-1h3.49c.55 0 1 .45 1 1 0 1.24.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.19 2.2Z"/></svg>
+                        </span>
+                        <?php echo esc_html(GOETZ_LEGAL_PHONE_DISPLAY); ?>
+                    </a>
+                    <a href="mailto:<?php echo esc_attr(GOETZ_LEGAL_EMAIL); ?>">
+                        <span class="site-contact-links__icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" focusable="false"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2Zm0 4-8 5-8-5V6l8 5 8-5v2Z"/></svg>
+                        </span>
+                        <?php echo esc_html(GOETZ_LEGAL_EMAIL); ?>
                     </a>
                 </div>
             </div>
         </div>
+
+        <div class="site-header__nav-row">
+            <div class="site-header__inner site-header__nav-inner">
+                <div class="site-branding-card">
+                    <?php if (has_custom_logo()): ?>
+                        <?php the_custom_logo(); ?>
+                    <?php else: ?>
+                        <a href="<?php echo esc_url(home_url('/')); ?>" class="site-branding-card__text">
+                            <span>Goetz <b>&amp;</b> Goetz</span>
+                        </a>
+                    <?php endif; ?>
+                </div>
+
+                <button type="button" aria-label="<?php esc_attr_e('Toggle navigation', 'goetz-legal'); ?>" id="primary-menu-toggle" class="site-menu-toggle" aria-expanded="false">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+
+                <nav id="primary-navigation" class="site-navigation" aria-label="<?php esc_attr_e('Primary menu', 'goetz-legal'); ?>">
+                    <?php if (has_nav_menu('primary')): ?>
+                        <?php
+                        wp_nav_menu([
+                            'container'      => false,
+                            'menu_class'     => 'site-navigation__list',
+                            'theme_location' => 'primary',
+                            'fallback_cb'    => false,
+                        ]);
+                        ?>
+                    <?php else: ?>
+                        <ul class="site-navigation__list">
+                            <?php foreach (goetz_legal_nav_items() as $item): ?>
+                                <li>
+                                    <a href="<?php echo esc_url($item['url']); ?>">
+                                        <?php echo esc_html($item['label']); ?>
+                                    </a>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
+                </nav>
+            </div>
+        </div>
     </header>
 
-    <div id="content" class="site-content grow">
+    <div id="content" class="site-content">
         <?php do_action('tailpress_content_start'); ?>
         <main>

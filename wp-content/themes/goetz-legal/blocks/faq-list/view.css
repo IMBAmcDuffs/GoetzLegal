@@ -1,0 +1,22 @@
+.goetz-faq-list {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.goetz-faq-list__item {
+  border-bottom: 1px solid #e6e8ee;
+  padding-bottom: 1.5rem;
+}
+
+.goetz-faq-list__item h2 {
+  color: #1f2933;
+  font-family: Georgia, serif;
+  font-size: clamp(1.35rem, 2vw, 1.8rem);
+  margin: 0 0 0.75rem;
+}
+
+.goetz-faq-list__item p {
+  color: #4b5563;
+  line-height: 1.75;
+}
+

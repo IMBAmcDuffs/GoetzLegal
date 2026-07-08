@@ -1,0 +1,94 @@
+.goetz-cta {
+  align-items: center;
+  background-color: #2d2d2d;
+  background-position: 50% 50%;
+  background-repeat: no-repeat;
+  background-size: cover;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  justify-content: space-between;
+  margin: 0;
+  padding: 3.4rem 1.5rem;
+  text-align: center;
+}
+
+.goetz-cta p {
+  color: #fff;
+  font-size: clamp(1.15rem, 2vw, 1.75rem);
+  font-weight: 400;
+  line-height: 1.15;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.goetz-cta h2 {
+  color: #fff;
+  font-family: Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: clamp(2rem, 5vw, 4rem);
+  font-weight: 400;
+  line-height: 1.05;
+  margin: 0.25rem 0 0;
+  text-transform: uppercase;
+}
+
+.goetz-cta h2 b,
+.goetz-cta h2 strong {
+  color: #7951a9;
+  font-weight: 700;
+}
+
+.goetz-cta .goetz-button {
+  align-items: center;
+  background: #fff;
+  border-radius: 999px;
+  color: #2d2d2d;
+  display: inline-flex;
+  font-family: Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 20px;
+  font-weight: 400;
+  gap: 0.35rem;
+  line-height: 1;
+  margin-top: 0;
+  padding: 14px 23px;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.goetz-cta .goetz-button::after {
+  content: "›";
+  font-size: 1.35em;
+  line-height: 0.7;
+}
+
+.goetz-cta .goetz-button:hover,
+.goetz-cta .goetz-button:focus-visible {
+  background: #7951a9;
+  color: #fff;
+  text-decoration: none;
+}
+
+@media (min-width: 782px) {
+  .goetz-cta {
+    flex-direction: row;
+    padding: 3.4rem max(2rem, calc((100vw - 1180px) / 2));
+    text-align: left;
+  }
+}
+
+@media (max-width: 600px) {
+  .goetz-cta {
+    align-items: stretch;
+    gap: 1.45rem;
+    padding: 2.9rem 1.75rem 4rem;
+    text-align: left;
+  }
+
+  .goetz-cta .goetz-button {
+    align-self: center;
+    font-size: 20px;
+    padding: 16px 22px;
+  }
+}

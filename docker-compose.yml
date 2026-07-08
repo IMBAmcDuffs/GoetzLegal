@@ -1,0 +1,88 @@
+services:
+  db:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${MYSQL_DATABASE:-wordpress}
+      MARIADB_USER: ${MYSQL_USER:-wordpress}
+      MARIADB_PASSWORD: ${MYSQL_PASSWORD:-wordpress}
+      MARIADB_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-wordpress}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  wordpress:
+    image: ${WORDPRESS_IMAGE:-wordpress:php8.3-apache}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${WP_PORT:-8080}:80"
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_NAME: ${MYSQL_DATABASE:-wordpress}
+      WORDPRESS_DB_USER: ${MYSQL_USER:-wordpress}
+      WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD:-wordpress}
+      WORDPRESS_CONFIG_EXTRA: |
+        if ( ! defined( 'WP_DEBUG' ) ) {
+          define( 'WP_DEBUG', true );
+        }
+        if ( ! defined( 'WP_DEBUG_LOG' ) ) {
+          define( 'WP_DEBUG_LOG', true );
+        }
+        if ( ! defined( 'WP_ENVIRONMENT_TYPE' ) ) {
+          define( 'WP_ENVIRONMENT_TYPE', 'local' );
+        }
+        if ( ! defined( 'DISALLOW_FILE_EDIT' ) ) {
+          define( 'DISALLOW_FILE_EDIT', true );
+        }
+      GOETZ_MIGRATION_FETCH_PROXY_URL: ${FETCH_PROXY_URL:-}
+    volumes:
+      - ./docker/apache/goetz-local.conf:/etc/apache2/conf-enabled/goetz-local.conf:ro
+      - wordpress_core:/var/www/html
+      - ./wp-content:/var/www/html/wp-content
+
+  wpcli:
+    image: ${WPCLI_IMAGE:-wordpress:cli-php8.3}
+    user: "33:33"
+    depends_on:
+      db:
+        condition: service_healthy
+      wordpress:
+        condition: service_started
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_NAME: ${MYSQL_DATABASE:-wordpress}
+      WORDPRESS_DB_USER: ${MYSQL_USER:-wordpress}
+      WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD:-wordpress}
+      GOETZ_MIGRATION_FETCH_PROXY_URL: ${FETCH_PROXY_URL:-}
+      HOME: /tmp
+      WP_CLI_CACHE_DIR: /tmp/wp-cli-cache
+    volumes:
+      - wordpress_core:/var/www/html
+      - ./wp-content:/var/www/html/wp-content
+    working_dir: /var/www/html
+    entrypoint: ["sleep", "infinity"]
+
+  node:
+    image: node:22-bookworm
+    volumes:
+      - .:/app
+    working_dir: /app/wp-content/themes/goetz-legal
+    command: ["sleep", "infinity"]
+
+  composer:
+    image: composer:2
+    volumes:
+      - .:/app
+    working_dir: /app/wp-content/themes/goetz-legal
+    command: ["sleep", "infinity"]
+
+volumes:
+  db_data:
+  wordpress_core:

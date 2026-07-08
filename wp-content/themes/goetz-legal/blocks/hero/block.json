@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "goetz/hero",
+  "title": "Goetz Hero",
+  "category": "theme",
+  "icon": "columns",
+  "description": "Homepage hero for the Goetz & Goetz rebuild.",
+  "textdomain": "goetz-legal",
+  "attributes": {
+    "eyebrow": { "type": "string", "default": "GoetzLegal.com" },
+    "heading": { "type": "string", "default": "A law firm with seasoned trial attorneys in Fort Myers, Florida." },
+    "content": { "type": "string", "default": "" },
+    "imageUrl": { "type": "string", "default": "" },
+    "imageAlt": { "type": "string", "default": "" },
+    "buttonText": { "type": "string", "default": "Learn More About Us" },
+    "buttonUrl": { "type": "string", "default": "/james-l-goetz/" }
+  },
+  "editorScript": "file:./index.js",
+  "style": "file:./style.css",
+  "viewStyle": "file:./view.css",
+  "viewScript": "file:./view.js",
+  "render": "file:./render.php"
+}
+

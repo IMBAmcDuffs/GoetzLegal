@@ -1,10 +1,15 @@
 @import 'tailwindcss';
 @import './theme.scss';
 @import './utilities.scss';
-@import './custom.scss' layer(utilities);
+@import './custom.scss';
 
 @source '../../vendor/tailpress/framework/**/*.php';
 @source '../../vendor/tailpress/framework/**/**/*.php';
+@source '../../*.php';
+@source '../../template-parts/**/*.php';
+@source '../../page-templates/**/*.php';
+@source '../../blocks/**/*.php';
+@source '../ts/**/*.ts';
 
 @utility container {
     margin-inline: auto;

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "goetz/attorney-card",
+  "title": "Goetz Attorney Card",
+  "category": "theme",
+  "icon": "businessperson",
+  "description": "Attorney or staff profile card.",
+  "textdomain": "goetz-legal",
+  "attributes": {
+    "name": { "type": "string", "default": "" },
+    "role": { "type": "string", "default": "" },
+    "bio": { "type": "string", "default": "" },
+    "email": { "type": "string", "default": "" },
+    "imageUrl": { "type": "string", "default": "" },
+    "imageAlt": { "type": "string", "default": "" },
+    "profileUrl": { "type": "string", "default": "" }
+  },
+  "editorScript": "file:./index.js",
+  "style": "file:./style.css",
+  "viewStyle": "file:./view.css",
+  "viewScript": "file:./view.js",
+  "render": "file:./render.php"
+}
+

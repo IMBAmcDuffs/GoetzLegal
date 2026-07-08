@@ -26,11 +26,24 @@ wp-config.php
 # Example plugin
 /wp-content/plugins/hello.php
 
+# Installed third-party plugins managed by the local setup
+/wp-content/plugins/wordpress-seo/
+/wp-content/plugins/wpforms-lite/
+
 # Uploads
 /wp-content/uploads/
 
 # Log files
 *.log
+
+# Local environment
+.env
+
+# Local verification artifacts
+/artifacts/
+
+# Local development exports
+/__dev/
 
 # htaccess
 /.htaccess

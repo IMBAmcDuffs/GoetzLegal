@@ -14,7 +14,9 @@ function initMobileNavigation(): void {
     if (mainNavigation && mainNavigationToggle) {
         mainNavigationToggle.addEventListener('click', (e: Event) => {
             e.preventDefault();
-            mainNavigation.classList.toggle('hidden');
+            const isOpen = mainNavigation.classList.toggle('is-open');
+            mainNavigationToggle.classList.toggle('is-open', isOpen);
+            mainNavigationToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
         });
     }
 }
@@ -44,18 +46,43 @@ function initSmoothScroll(): void {
  * Header scroll effect - add shadow on scroll.
  */
 function initHeaderScroll(): void {
-    const header = document.querySelector('header');
+    const header = document.querySelector('.site-header');
     if (!header) return;
 
     const handleScroll = (): void => {
         if (window.scrollY > 10) {
-            header.classList.add('shadow-xl');
+            header.classList.add('is-scrolled');
         } else {
-            header.classList.remove('shadow-xl');
+            header.classList.remove('is-scrolled');
         }
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
+}
+
+/**
+ * Match the imported WPForms markup to the original contact form presentation.
+ */
+function initContactFormPresentation(): void {
+    const contactForm = document.querySelector<HTMLFormElement>('.goetz-contact-form .wpforms-form');
+    if (!contactForm) return;
+
+    contactForm.querySelectorAll<HTMLElement>('.wpforms-field').forEach((field) => {
+        const label = field.querySelector<HTMLLabelElement>('.wpforms-field-label');
+        const control = field.querySelector<HTMLInputElement | HTMLTextAreaElement>('input:not([type="hidden"]), textarea');
+
+        if (!label || !control) return;
+
+        const placeholder = label.textContent?.replace(/\s+/g, ' ').replace(/\s*\*$/, '*').trim();
+        if (placeholder && !control.placeholder) {
+            control.placeholder = placeholder;
+        }
+    });
+
+    const submitButton = contactForm.querySelector<HTMLButtonElement>('.wpforms-submit');
+    if (submitButton) {
+        submitButton.textContent = 'Submit';
+    }
 }
 
 /**
@@ -65,4 +92,5 @@ window.addEventListener('load', (): void => {
     initMobileNavigation();
     initSmoothScroll();
     initHeaderScroll();
+    initContactFormPresentation();
 });
