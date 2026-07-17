@@ -193,6 +193,40 @@ grep -q -- '--env-file /dev/null' manager.sh
 declare -F scan_repository_deployment_scripts >/dev/null || fail 'repository rsync deletion scanner is missing'
 scan_repository_deployment_scripts || fail 'repository deployment code violates the zero-delete baseline'
 
+# Dependency reproducibility invariants. Lockfiles are source artifacts: they
+# must exist, be trackable, and be consumed through locked install commands.
+readonly -a REQUIRED_LOCKFILES=(
+  composer.lock
+  wp-content/themes/goetz-legal/composer.lock
+  wp-content/themes/goetz-legal/package-lock.json
+  wp-content/plugins/goetz-site/package-lock.json
+  tests/e2e/package-lock.json
+)
+for lockfile in "${REQUIRED_LOCKFILES[@]}"; do
+  [[ -f "$lockfile" ]] || fail "required dependency lockfile is missing: $lockfile"
+  if git check-ignore -q --no-index "$lockfile"; then
+    fail "required dependency lockfile is ignored: $lockfile"
+  fi
+done
+
+[[ -f composer.json ]] || fail 'root composer.json is missing'
+grep -Eq '"wpackagist-plugin/wordpress-seo"[[:space:]]*:[[:space:]]*"28\.0"' composer.json ||
+  fail 'root composer.json must lock Yoast SEO to 28.0'
+grep -Eq '"wpackagist-plugin/wpforms-lite"[[:space:]]*:[[:space:]]*"1\.10\.0\.4"' composer.json ||
+  fail 'root composer.json must lock WPForms Lite to 1.10.0.4'
+grep -A2 '"platform"' composer.json | grep -Eq '"php"[[:space:]]*:[[:space:]]*"8\.3\.0"' ||
+  fail 'root Composer resolution must target production PHP 8.3'
+grep -A2 '"platform"' wp-content/themes/goetz-legal/composer.json | grep -Eq '"php"[[:space:]]*:[[:space:]]*"8\.3\.0"' ||
+  fail 'theme Composer resolution must target production PHP 8.3'
+
+grep -Fq 'composer install --no-dev --prefer-dist --classmap-authoritative --no-interaction --no-progress' manager.sh ||
+  fail 'manager production dependency install must be locked and optimized'
+grep -Fq 'npm ci' manager.sh || fail 'manager Node dependency installs must use npm ci'
+! grep -Eq '(^|[[:space:]])npm install([[:space:]]|$)' manager.sh ||
+  fail 'manager contains a floating npm install'
+! grep -Eq '(^|[[:space:]])composer (update|require)([[:space:]]|$)' manager.sh ||
+  fail 'manager contains a floating Composer operation'
+
 inspect_release() {
   local release_dir="$1"
   local entry
@@ -201,7 +235,7 @@ inspect_release() {
 
   while IFS= read -r entry; do
     case "$entry" in
-      .env*|*/.env*|*.sql|*/.git|*/.git/*|.git|.git/*|node_modules|*/node_modules|node_modules/*|*/node_modules/*|tests|*/tests|tests/*|*/tests/*)
+      .env*|*/.env*|*.sql|*/.git|*/.git/*|.git|.git/*|vendor|vendor/*|node_modules|*/node_modules|node_modules/*|*/node_modules/*|tests|*/tests|tests/*|*/tests/*)
         fail "forbidden release entry: $entry"
         ;;
     esac

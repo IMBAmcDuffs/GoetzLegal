@@ -1,0 +1,12 @@
+{
+  "name": "goetz-site-blocks",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "wp-scripts build src/index.js --output-path=build",
+    "test:unit": "wp-scripts test-unit-js"
+  },
+  "devDependencies": {
+    "@wordpress/scripts": "33.0.0"
+  }
+}

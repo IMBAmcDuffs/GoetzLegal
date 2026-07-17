@@ -1,0 +1,16 @@
+{
+  "name": "goetz-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:auth": "playwright test --config=playwright.config.ts",
+    "test:public": "playwright test --config=playwright.public.config.ts",
+    "test:capture": "playwright test --config=playwright.capture.config.ts"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.12.1",
+    "@playwright/test": "1.61.1",
+    "pixelmatch": "7.2.0",
+    "pngjs": "7.0.0"
+  }
+}

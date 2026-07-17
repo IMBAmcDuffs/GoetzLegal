@@ -1,6 +1,6 @@
 services:
   db:
-    image: mariadb:11.4
+    image: mariadb:11.4.10@sha256:3b4dfcc32247eb07adbebec0793afae2a8eafa6860ec523ee56af4d3dec42f7f
     restart: unless-stopped
     environment:
       MARIADB_DATABASE: ${MYSQL_DATABASE:-wordpress}
@@ -16,7 +16,7 @@ services:
       retries: 10
 
   wordpress:
-    image: ${WORDPRESS_IMAGE:-wordpress:php8.3-apache}
+    image: ${WORDPRESS_IMAGE:-wordpress:6.9.4-php8.3-apache@sha256:5d2c212561c4b5442ebc4d98933a9cbadcf3dee8888ed3fd9ed44667c27cc905}
     restart: unless-stopped
     depends_on:
       db:
@@ -48,7 +48,7 @@ services:
       - ./wp-content:/var/www/html/wp-content
 
   wpcli:
-    image: ${WPCLI_IMAGE:-wordpress:cli-php8.3}
+    image: ${WPCLI_IMAGE:-wordpress:cli-2.12.0-php8.3@sha256:f8aeb68164c6a04f5dcc91da30d8ffa096b0f7fafb7a65f144c2dd62587caca0}
     user: "33:33"
     depends_on:
       db:
@@ -64,24 +64,38 @@ services:
       HOME: /tmp
       WP_CLI_CACHE_DIR: /tmp/wp-cli-cache
     volumes:
+      - .:/app:ro
       - wordpress_core:/var/www/html
       - ./wp-content:/var/www/html/wp-content
     working_dir: /var/www/html
     entrypoint: ["sleep", "infinity"]
 
   node:
-    image: node:22-bookworm
+    image: node:22.14.0-bookworm@sha256:e5ddf893cc6aeab0e5126e4edae35aa43893e2836d1d246140167ccc2616f5d7
     volumes:
       - .:/app
-    working_dir: /app/wp-content/themes/goetz-legal
+    working_dir: /app
     command: ["sleep", "infinity"]
 
   composer:
-    image: composer:2
+    image: composer:2.8.12@sha256:5248900ab8b5f7f880c2d62180e40960cd87f60149ec9a1abfd62ac72a02577c
+    environment:
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: /app
     volumes:
       - .:/app
-    working_dir: /app/wp-content/themes/goetz-legal
+    working_dir: /app
     command: ["sleep", "infinity"]
+
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+    init: true
+    network_mode: host
+    ipc: host
+    volumes:
+      - .:/app
+    working_dir: /app/tests/e2e
 
 volumes:
   db_data:

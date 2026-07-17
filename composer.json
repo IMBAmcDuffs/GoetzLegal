@@ -1,0 +1,39 @@
+{
+  "$schema": "https://getcomposer.org/schema.json",
+  "name": "goetz-legal/site",
+  "description": "Locked runtime dependencies for the Goetz & Goetz WordPress site.",
+  "type": "project",
+  "license": "proprietary",
+  "repositories": [
+    {
+      "type": "composer",
+      "url": "https://wpackagist.org"
+    }
+  ],
+  "require": {
+    "php": ">=8.0.2",
+    "composer/installers": "^2.3",
+    "wpackagist-plugin/wordpress-seo": "28.0",
+    "wpackagist-plugin/wpforms-lite": "1.10.0.4"
+  },
+  "require-dev": {
+    "brain/monkey": "^2.6",
+    "phpunit/phpunit": "^9.6"
+  },
+  "extra": {
+    "installer-paths": {
+      "wp-content/plugins/{$name}/": [
+        "type:wordpress-plugin"
+      ]
+    }
+  },
+  "config": {
+    "allow-plugins": {
+      "composer/installers": true
+    },
+    "platform": {
+      "php": "8.3.0"
+    },
+    "sort-packages": true
+  }
+}

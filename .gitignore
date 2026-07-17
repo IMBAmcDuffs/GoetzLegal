@@ -30,6 +30,7 @@ wp-config.php
 /wp-content/plugins/hello.php
 
 # Installed third-party plugins managed by the local setup
+/wp-content/plugins/akismet/
 /wp-content/plugins/wordpress-seo/
 /wp-content/plugins/wpforms-lite/
 
@@ -68,5 +69,12 @@ wp-config.php
 wp-content/themes/goetz-legal/node_modules/
 wp-content/themes/goetz-legal/dist/
 wp-content/themes/goetz-legal/vendor/
-wp-content/themes/goetz-legal/package-lock.json
-wp-content/themes/goetz-legal/composer.lock
+
+# Root, first-party plugin, and browser test dependencies/build output
+/vendor/
+/wp-content/plugins/goetz-site/node_modules/
+/wp-content/plugins/goetz-site/build/
+/tests/e2e/node_modules/
+/tests/e2e/test-results/
+/tests/e2e/playwright-report/
+/.phpunit.result.cache
