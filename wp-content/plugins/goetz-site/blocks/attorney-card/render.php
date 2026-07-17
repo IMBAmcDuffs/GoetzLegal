@@ -26,12 +26,11 @@ $attrs = wp_parse_args(
         <?php endif; ?>
         <div class="goetz-attorney-card__links">
             <?php if (!empty($attrs['profileUrl'])): ?>
-                <a href="<?php echo esc_url($attrs['profileUrl']); ?>"><?php esc_html_e('Read Full Bio', 'goetz-legal'); ?></a>
+                <a href="<?php echo esc_url($attrs['profileUrl']); ?>"><?php esc_html_e('Read Full Bio', 'goetz-site'); ?></a>
             <?php endif; ?>
             <?php if (!empty($attrs['email'])): ?>
-                <a href="mailto:<?php echo esc_attr($attrs['email']); ?>"><?php esc_html_e('Email', 'goetz-legal'); ?></a>
+                <a href="mailto:<?php echo esc_attr($attrs['email']); ?>"><?php esc_html_e('Email', 'goetz-site'); ?></a>
             <?php endif; ?>
         </div>
     </div>
 </article>
-

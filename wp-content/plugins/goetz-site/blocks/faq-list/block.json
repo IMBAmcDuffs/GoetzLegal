@@ -6,14 +6,13 @@
   "category": "theme",
   "icon": "editor-help",
   "description": "FAQ content for the Questions page.",
-  "textdomain": "goetz-legal",
+  "textdomain": "goetz-site",
   "attributes": {
     "items": { "type": "array", "default": [] }
   },
-  "editorScript": "file:./index.js",
+  "editorScript": "goetz-site-block-editor",
   "style": "file:./style.css",
   "viewStyle": "file:./view.css",
   "viewScript": "file:./view.js",
   "render": "file:./render.php"
 }
-

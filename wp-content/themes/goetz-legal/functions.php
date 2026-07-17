@@ -9,6 +9,9 @@ if (is_file(__DIR__.'/vendor/autoload_packages.php')) {
     require_once __DIR__.'/vendor/autoload_packages.php';
 }
 
+require_once __DIR__ . '/inc/site-health.php';
+add_filter('site_status_tests', 'goetz_legal_add_site_status_tests');
+
 define('GOETZ_LEGAL_PHONE_DISPLAY', '(239) 936-2841');
 define('GOETZ_LEGAL_PHONE_TEL', '+12399362841');
 define('GOETZ_LEGAL_EMAIL', 'info@goetzlegal.com');
@@ -121,23 +124,6 @@ function goetz_legal_nav_items(): array
         ['label' => __('Contact', 'goetz-legal'), 'url' => home_url('/contact/')],
     ];
 }
-
-/**
- * Register custom blocks from block.json metadata.
- */
-function goetz_legal_register_blocks(): void
-{
-    $blocks_dir = __DIR__ . '/blocks';
-
-    if (!is_dir($blocks_dir)) {
-        return;
-    }
-
-    foreach (glob($blocks_dir . '/*/block.json') ?: [] as $metadata_file) {
-        register_block_type(dirname($metadata_file));
-    }
-}
-add_action('init', 'goetz_legal_register_blocks');
 
 /**
  * Enqueue Google Fonts. The rebuild only uses Roboto, matching the live site.

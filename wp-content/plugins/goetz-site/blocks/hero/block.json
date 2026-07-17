@@ -6,7 +6,7 @@
   "category": "theme",
   "icon": "columns",
   "description": "Homepage hero for the Goetz & Goetz rebuild.",
-  "textdomain": "goetz-legal",
+  "textdomain": "goetz-site",
   "attributes": {
     "eyebrow": { "type": "string", "default": "GoetzLegal.com" },
     "heading": { "type": "string", "default": "A law firm with seasoned trial attorneys in Fort Myers, Florida." },
@@ -16,10 +16,9 @@
     "buttonText": { "type": "string", "default": "Learn More About Us" },
     "buttonUrl": { "type": "string", "default": "/james-l-goetz/" }
   },
-  "editorScript": "file:./index.js",
+  "editorScript": "goetz-site-block-editor",
   "style": "file:./style.css",
   "viewStyle": "file:./view.css",
   "viewScript": "file:./view.js",
   "render": "file:./render.php"
 }
-
