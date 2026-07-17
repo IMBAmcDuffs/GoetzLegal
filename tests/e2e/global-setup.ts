@@ -2,10 +2,7 @@ import { chromium, type FullConfig } from '@playwright/test';
 import path from 'node:path';
 import { runAuthenticatedSetup } from './helpers/auth-setup.mjs';
 import { resolveAuthenticatedExpectedOrigin } from './helpers/auth-login.mjs';
-
-function isLoopback(url: URL): boolean {
-  return ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
-}
+import { isLoopbackURL } from './helpers/browser.mjs';
 
 export default async function globalSetup(config: FullConfig): Promise<void> {
   const configuredBaseURL = config.projects[0]?.use.baseURL;
@@ -14,7 +11,7 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
   }
 
   const baseURL = new URL(configuredBaseURL);
-  if (!isLoopback(baseURL) && process.env.GOETZ_E2E_ALLOW_REMOTE !== '1') {
+  if (!isLoopbackURL(baseURL) && process.env.GOETZ_E2E_ALLOW_REMOTE !== '1') {
     throw new Error('Remote authenticated tests require GOETZ_E2E_ALLOW_REMOTE=1.');
   }
 

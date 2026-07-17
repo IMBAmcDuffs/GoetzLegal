@@ -645,6 +645,23 @@ reset_fake_docker
 grep -Fq '<playwright-local>' "$fixture/bin/docker-record.3" ||
   fail 'bracketed IPv6 loopback did not select the local-only browser service'
 
+reset_fake_docker
+/usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  GOETZ_BASE_URL='http://[::1]:18080' \
+  /bin/bash "$fixture/manager.sh" test:e2e:auth ||
+  fail 'bracketed IPv6 authenticated loopback required remote opt-in'
+ipv6_auth_record="$fixture/bin/docker-record.3"
+grep -Fq '<playwright-auth-local>' "$ipv6_auth_record" ||
+  fail 'bracketed IPv6 authenticated loopback did not use the local auth service'
+grep -Fqx 'GOETZ_E2E_USER=never-export-admin' "$ipv6_auth_record" ||
+  fail 'bracketed IPv6 authenticated loopback did not use the local username fallback'
+grep -Fqx 'GOETZ_E2E_PASSWORD=never-export-admin-password' "$ipv6_auth_record" ||
+  fail 'bracketed IPv6 authenticated loopback did not use the local password fallback'
+! grep -q '^GOETZ_E2E_ALLOW_REMOTE=' "$ipv6_auth_record" ||
+  fail 'bracketed IPv6 authenticated loopback received remote opt-in'
+
 for public_command in test:public test:capture; do
   for mixed_pair in \
     'http://localhost:18080 https://redirect.invalid' \
@@ -1019,18 +1036,39 @@ grep -Fq -- '--host-resolver-rules=' tests/e2e/helpers/browser.mjs ||
 node --input-type=module - "$root/tests/e2e/helpers/browser.mjs" <<'NODE'
 import { pathToFileURL } from 'node:url';
 
-const { wordpressLaunchOptions } = await import(pathToFileURL(process.argv[2]).href);
-const localOptions = wordpressLaunchOptions('http://localhost:8080', true);
-if (!localOptions.args?.some((argument) => argument.includes('host.docker.internal'))) {
-  throw new Error('loopback Compose URL did not receive the explicit host-gateway route');
+const { isLoopbackURL, wordpressLaunchOptions } =
+  await import(pathToFileURL(process.argv[2]).href);
+for (const localURL of [
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+  'http://[::1]:8080',
+]) {
+  if (!isLoopbackURL(localURL)) {
+    throw new Error(`browser loopback classifier rejected: ${localURL}`);
+  }
+  if (!isLoopbackURL(new URL(localURL))) {
+    throw new Error(`browser URL-object loopback classifier rejected: ${localURL}`);
+  }
+  const localOptions = wordpressLaunchOptions(localURL, true);
+  if (!localOptions.args?.some((argument) => argument.includes('host.docker.internal'))) {
+    throw new Error('loopback Compose URL did not receive the explicit host-gateway route');
+  }
 }
 for (const remoteURL of ['https://goetzlegal.com', 'https://example.invalid']) {
+  if (isLoopbackURL(remoteURL)) {
+    throw new Error(`browser loopback classifier accepted remote URL: ${remoteURL}`);
+  }
+  if (isLoopbackURL(new URL(remoteURL))) {
+    throw new Error(`browser URL-object loopback classifier accepted remote URL: ${remoteURL}`);
+  }
   const remoteOptions = wordpressLaunchOptions(remoteURL, true);
   if (remoteOptions.args?.some((argument) => argument.includes('host.docker.internal'))) {
     throw new Error(`remote URL received a host-gateway resolver rule: ${remoteURL}`);
   }
 }
 NODE
+grep -Fq 'isLoopbackURL(baseURL)' tests/e2e/global-setup.ts ||
+  fail 'authenticated global setup does not use the shared browser loopback classifier'
 for playwright_config in \
   tests/e2e/playwright.config.ts \
   tests/e2e/playwright.public.config.ts \
