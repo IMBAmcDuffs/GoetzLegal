@@ -17,6 +17,9 @@
 /wp-*.php
 /xmlrpc.php
 
+/.env*
+!.env.example
+
 # Configuration
 wp-config.php
 
@@ -37,10 +40,11 @@ wp-config.php
 *.log
 
 # Local environment
-.env
+/.env
 
 # Local verification artifacts
 /artifacts/
+/.superpowers/
 
 # Local development exports
 /__dev/

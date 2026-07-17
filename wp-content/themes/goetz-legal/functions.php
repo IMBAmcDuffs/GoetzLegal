@@ -140,13 +140,13 @@ function goetz_legal_register_blocks(): void
 add_action('init', 'goetz_legal_register_blocks');
 
 /**
- * Enqueue Google Fonts for Playfair Display, Lato, and Roboto.
+ * Enqueue Google Fonts. The rebuild only uses Roboto, matching the live site.
  */
 function goetz_legal_enqueue_fonts(): void
 {
     wp_enqueue_style(
         'goetz-legal-google-fonts',
-        'https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700;900&family=Playfair+Display:wght@400;500;600;700;800;900&family=Roboto:wght@400;500;700&display=swap',
+        'https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap',
         [],
         null
     );
