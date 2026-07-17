@@ -12,6 +12,12 @@ fail() {
 # Curated media ships as immutable plugin source. Runtime uploads never belong
 # in a release payload, including generated copies of these originals.
 readonly CURATED_SEED_ORIGINALS_DIR='wp-content/plugins/goetz-site/assets/seed'
+readonly -a ALLOWED_RSYNC_DELETE_PLUGINS=(
+  goetz-site
+  goetz-migration
+  wordpress-seo
+  wpforms-lite
+)
 [[ "${CURATED_SEED_ORIGINALS_DIR:-}" == 'wp-content/plugins/goetz-site/assets/seed' ]] ||
   fail 'curated seed originals must live in the goetz-site plugin assets/seed directory'
 [[ "$CURATED_SEED_ORIGINALS_DIR" != wp-content/uploads/* ]] ||
@@ -59,6 +65,9 @@ rsync_delete_is_safe() {
   local destination_path
   local normalized_destination
   local normalized_site_root
+  local plugin_path
+  local plugin_name
+  local allowed_plugin
   local has_delete=0
   local -a arguments=()
 
@@ -92,10 +101,64 @@ rsync_delete_is_safe() {
   normalized_site_root="$(normalize_absolute_path "$site_root")" || return 1
 
   case "$normalized_destination" in
-    "$normalized_site_root"|"$normalized_site_root/wp-content/plugins"|"$normalized_site_root/wp-content/mu-plugins"|"$normalized_site_root/wp-content/uploads")
+    "$normalized_site_root"|\
+    "$normalized_site_root/wp-admin"|"$normalized_site_root/wp-admin/"*|\
+    "$normalized_site_root/wp-includes"|"$normalized_site_root/wp-includes/"*|\
+    "$normalized_site_root/wp-content/mu-plugins"|"$normalized_site_root/wp-content/mu-plugins/"*|\
+    "$normalized_site_root/wp-content/uploads"|"$normalized_site_root/wp-content/uploads/"*|\
+    "$normalized_site_root/wp-content/plugins")
+      return 1
+      ;;
+    "$normalized_site_root/wp-content/plugins/"*)
+      plugin_path="${normalized_destination#"$normalized_site_root/wp-content/plugins/"}"
+      plugin_name="${plugin_path%%/*}"
+      for allowed_plugin in "${ALLOWED_RSYNC_DELETE_PLUGINS[@]}"; do
+        [[ "$plugin_name" == "$allowed_plugin" ]] && return 0
+      done
       return 1
       ;;
   esac
+
+  return 0
+}
+
+repository_script_is_delete_free() {
+  local script_path="$1"
+
+  awk '
+    /^[[:space:]]*#/ { next }
+    {
+      content = content " " $0
+    }
+    END {
+      has_rsync = content ~ /(^|[^[:alnum:]_])rsync([^[:alnum:]_]|$)/
+      has_delete = content ~ /--delete(-[[:alnum:]_-]+)?([^[:alnum:]_-]|$)/
+      exit(has_rsync && has_delete ? 1 : 0)
+    }
+  ' "$script_path"
+}
+
+scan_repository_deployment_scripts() {
+  local script_path
+  local -a deployment_scripts=()
+
+  if (( $# > 0 )); then
+    deployment_scripts=("$@")
+  else
+    deployment_scripts=(manager.sh)
+    if [[ -d scripts/release ]]; then
+      while IFS= read -r -d '' script_path; do
+        deployment_scripts+=("$script_path")
+      done < <(find scripts/release -maxdepth 1 -type f -name '*.sh' -print0)
+    fi
+  fi
+
+  for script_path in "${deployment_scripts[@]}"; do
+    if ! repository_script_is_delete_free "$script_path"; then
+      printf 'repository deployment script contains forbidden rsync deletion: %s\n' "$script_path" >&2
+      return 1
+    fi
+  done
 
   return 0
 }
@@ -127,6 +190,8 @@ grep -q -- '--env-file /dev/null' manager.sh
 ! grep -Eq 'wp plugin install (wordpress-seo|wpforms-lite)([[:space:]]|$)' manager.sh
 ! grep -Eq 'deploy:db|wp db import' manager.sh
 ! grep -Fq '${ROOT_DIR}/wp-content/uploads/' manager.sh
+declare -F scan_repository_deployment_scripts >/dev/null || fail 'repository rsync deletion scanner is missing'
+scan_repository_deployment_scripts || fail 'repository deployment code violates the zero-delete baseline'
 
 inspect_release() {
   local release_dir="$1"
@@ -272,6 +337,28 @@ cp manager.sh .env.example "$new_env_fixture/"
 )
 [[ "$(stat -c '%a' "$new_env_fixture/.env")" == '600' ]] || fail 'new synthetic .env was not created with mode 600'
 
+unsafe_repository_script="$fixture/unsafe-release.sh"
+cat > "$unsafe_repository_script" <<'UNSAFE_RELEASE'
+#!/usr/bin/env bash
+set -euo pipefail
+site_root='/www/example/public'
+plugin_root="deploy@example.invalid:${site_root}/wp-content/plugins"
+rsync -az --delete /tmp/source/ "${plugin_root}/"
+UNSAFE_RELEASE
+
+safe_repository_script="$fixture/safe-release.sh"
+cat > "$safe_repository_script" <<'SAFE_RELEASE'
+#!/usr/bin/env bash
+set -euo pipefail
+plugin_target='deploy@example.invalid:/www/example/public/wp-content/plugins/goetz-site/'
+rsync -az /tmp/source/ "$plugin_target"
+SAFE_RELEASE
+
+if scan_repository_deployment_scripts "$unsafe_repository_script" >/dev/null 2>&1; then
+  fail 'variable-built repository rsync --delete fixture passed the zero-delete scanner'
+fi
+scan_repository_deployment_scripts "$safe_repository_script" || fail 'safe no-delete repository rsync fixture failed the scanner'
+
 rsync_bin="$fixture/rsync-bin"
 mkdir -p "$rsync_bin"
 cat > "$rsync_bin/rsync" <<'RSYNC'
@@ -312,6 +399,34 @@ safe_plugin_record="$fixture/rsync-safe-plugin.record"
 record_rsync "$safe_plugin_record" /bin/bash -c \
   'rsync -az --delete /tmp/source/ deploy@example.invalid:/www/example/public/wp-content/plugins/goetz-site/'
 
+unsafe_descendant_destinations=(
+  'deploy@example.invalid:/www/example/public/wp-content/uploads/2026/07/'
+  'deploy@example.invalid:/www/example/public/wp-content/mu-plugins/kinsta/cache/'
+  'deploy@example.invalid:/www/example/public/wp-admin/'
+  'deploy@example.invalid:/www/example/public/wp-admin/css/'
+  'deploy@example.invalid:/www/example/public/wp-includes/'
+  'deploy@example.invalid:/www/example/public/wp-includes/blocks/'
+  'deploy@example.invalid:/www/example/public/wp-content/plugins/unapproved-plugin/'
+  'deploy@example.invalid:/www/example/public/wp-content/plugins/unapproved-plugin/includes/'
+)
+unsafe_descendant_records=()
+for index in "${!unsafe_descendant_destinations[@]}"; do
+  descendant_record="$fixture/rsync-unsafe-descendant-${index}.record"
+  record_rsync "$descendant_record" /bin/bash -c \
+    'rsync -az --delete /tmp/source/ "$1"' _ "${unsafe_descendant_destinations[$index]}"
+  unsafe_descendant_records+=("$descendant_record")
+done
+
+allowed_plugin_names=(goetz-site goetz-migration wordpress-seo wpforms-lite)
+allowed_plugin_records=()
+for plugin_name in "${allowed_plugin_names[@]}"; do
+  allowed_record="$fixture/rsync-allowed-${plugin_name}.record"
+  record_rsync "$allowed_record" /bin/bash -c \
+    'rsync -az --delete /tmp/source/ "$1"' _ \
+    "deploy@example.invalid:/www/example/public/wp-content/plugins/${plugin_name}/"
+  allowed_plugin_records+=("$allowed_record")
+done
+
 declare -F rsync_delete_is_safe >/dev/null || fail 'resolved rsync deletion guard is missing'
 if rsync_delete_is_safe "$variable_plugin_record" "$site_root"; then
   fail 'variable-built plugin-root --delete destination was accepted'
@@ -325,6 +440,15 @@ fi
 if rsync_delete_is_safe "$uploads_record" "$site_root"; then
   fail 'uploads-root --delete destination was accepted'
 fi
+for index in "${!unsafe_descendant_records[@]}"; do
+  if rsync_delete_is_safe "${unsafe_descendant_records[$index]}" "$site_root"; then
+    fail "unsafe core/plugin/upload descendant was accepted: ${unsafe_descendant_destinations[$index]}"
+  fi
+done
 rsync_delete_is_safe "$safe_plugin_record" "$site_root" || fail 'explicit named-plugin --delete destination was rejected'
+for index in "${!allowed_plugin_records[@]}"; do
+  rsync_delete_is_safe "${allowed_plugin_records[$index]}" "$site_root" ||
+    fail "allowlisted named-plugin destination was rejected: ${allowed_plugin_names[$index]}"
+done
 
 printf 'repository-release: PASS\n'
