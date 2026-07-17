@@ -231,6 +231,70 @@ grep -Fq 'vendor/bin/phpunit --cache-result-file /work/vendor/.phpunit.result.ca
 ! grep -Eq '(^|[[:space:]])composer (update|require)([[:space:]]|$)' manager.sh ||
   fail 'manager contains a floating Composer operation'
 
+# The legacy baseline is captured through a dedicated, read-only browser
+# contract. The only tracked writable bind is the immutable fixture directory.
+[[ -f tests/e2e/helpers/settle-page.ts ]] ||
+  fail 'legacy capture settle helper is missing'
+[[ -f tests/e2e/capture-reference.spec.ts ]] ||
+  fail 'legacy reference capture specification is missing'
+grep -Fq 'CALLER_GOETZ_REFERENCE_URL_SET=' manager.sh ||
+  fail 'manager does not preserve an explicit caller reference URL across sanitized env loading'
+grep -Fq 'CALLER_GOETZ_REFERENCE_ALLOW_OVERRIDE_SET=' manager.sh ||
+  fail 'manager does not preserve explicit reference override approval across sanitized env loading'
+grep -Fq 'CALLER_GOETZ_REFERENCE_EXPECT_ORIGIN_SET=' manager.sh ||
+  fail 'manager does not preserve an explicit reference expected origin across sanitized env loading'
+grep -Fq 'visual:capture-reference)' manager.sh ||
+  fail 'manager is missing the one-time reference capture dispatcher'
+grep -Fq 'GOETZ_CAPTURE_MODE=contract' manager.sh ||
+  fail 'test:capture must select non-writing contract mode'
+grep -Fq 'GOETZ_CAPTURE_MODE=write' manager.sh ||
+  fail 'visual:capture-reference must select immutable fixture write mode'
+grep -Fq "serviceWorkers: 'block'" tests/e2e/playwright.capture.config.ts ||
+  fail 'capture browser must block service workers'
+grep -Fq 'acceptDownloads: false' tests/e2e/playwright.capture.config.ts ||
+  fail 'capture browser must refuse downloads'
+! grep -Fq 'wordpressLaunchOptions' tests/e2e/playwright.capture.config.ts ||
+  fail 'remote-only capture config must never install a local host-gateway route'
+for required_capture_marker in \
+  'captured_at_utc' \
+  'pixel_width' \
+  'pixel_height' \
+  "userAgent: devices['Desktop Chrome'].userAgent" \
+  "animations: 'disabled'" \
+  "caret: 'hide'" \
+  "scale: 'css'" \
+  "topbar: '#header_meta'" \
+  "primary_nav: '#avia-menu'" \
+  "logo: '#header_main .logo img'" \
+  "practice_items: '#av-layout-grid-1 .article-icon-entry'" \
+  "footer_columns: '#av_section_5 .entry-content-wrapper > .flex_column'" \
+  'border_radius' \
+  'padding_top' \
+  'margin_top' \
+  'object_fit' \
+  'object_position' \
+  'transform: style.transform' \
+  'read_only_contract' \
+  'allowed_methods' \
+  'blocked_requests: []' \
+  'dynamic_masks: []' \
+  'images_complete' \
+  'returned_to_top' \
+  'browser_version' \
+  'browser_name' \
+  'device_scale_factor'; do
+  grep -Fq "$required_capture_marker" tests/e2e/capture-reference.spec.ts ||
+    fail "capture specification is missing deterministic geometry marker: $required_capture_marker"
+done
+grep -Fq 'practiceIconSelector' tests/e2e/helpers/settle-page.ts ||
+  fail 'settle helper does not monitor the live practice icon animation seam'
+grep -Fq 'practiceIcons' tests/e2e/helpers/settle-page.ts ||
+  fail 'settle helper layout signature omits live practice icon styles'
+grep -Fq 'await assertPracticeIconsComplete(page);' tests/e2e/capture-reference.spec.ts ||
+  fail 'live capture does not require all seven practice icons to reach their final state'
+[[ "$(grep -Fc 'assertFinalReferenceLocation(page, target)' tests/e2e/capture-reference.spec.ts)" -ge 2 ]] ||
+  fail 'capture must revalidate the exact final location after settlement and before screenshot geometry'
+
 inspect_release() {
   local release_dir="$1"
   local entry
@@ -293,6 +357,9 @@ GOETZ_EXPECT_PRODUCTION=env-production
 GOETZ_E2E_ALLOW_REMOTE=env-allow
 GOETZ_E2E_USER=env-user
 GOETZ_E2E_PASSWORD=env-password
+GOETZ_REFERENCE_URL=https://env-reference.invalid
+GOETZ_REFERENCE_EXPECT_ORIGIN=https://env-reference-origin.invalid
+GOETZ_REFERENCE_ALLOW_OVERRIDE=env-reference-allow
 SSH_KEY_PW=never-forward-this-test-value
 ENV
 chmod 0644 "$fixture/.env"
@@ -401,6 +468,11 @@ disallowed=(
   GOETZ_E2E_ALLOW_REMOTE
   GOETZ_E2E_USER
   GOETZ_E2E_PASSWORD
+  GOETZ_REFERENCE_URL
+  GOETZ_REFERENCE_ALLOW_OVERRIDE
+  GOETZ_REFERENCE_EXPECT_ORIGIN
+  GOETZ_REFERENCE_OVERRIDE_APPROVED
+  GOETZ_CAPTURE_MODE
 )
 for name in "${disallowed[@]}"; do
   ! grep -q "^${name}=" "$record" || fail "non-allowlisted variable reached Docker: $name"
@@ -419,6 +491,11 @@ readonly -a GOETZ_BROWSER_VARIABLES=(
   GOETZ_E2E_ALLOW_REMOTE
   GOETZ_E2E_USER
   GOETZ_E2E_PASSWORD
+  GOETZ_REFERENCE_URL
+  GOETZ_REFERENCE_ALLOW_OVERRIDE
+  GOETZ_REFERENCE_EXPECT_ORIGIN
+  GOETZ_REFERENCE_OVERRIDE_APPROVED
+  GOETZ_CAPTURE_MODE
 )
 
 assert_no_browser_environment() {
@@ -445,6 +522,11 @@ assert_public_browser_environment() {
   for name in GOETZ_E2E_ALLOW_REMOTE GOETZ_E2E_USER GOETZ_E2E_PASSWORD; do
     ! grep -q "^${name}=" "$record_path" ||
       fail "public browser invocation received an authenticated-only variable: $name"
+  done
+  for name in GOETZ_REFERENCE_URL GOETZ_REFERENCE_ALLOW_OVERRIDE GOETZ_REFERENCE_EXPECT_ORIGIN \
+    GOETZ_REFERENCE_OVERRIDE_APPROVED GOETZ_CAPTURE_MODE; do
+    ! grep -q "^${name}=" "$record_path" ||
+      fail "public browser invocation received a capture-only variable: $name"
   done
 }
 
@@ -662,7 +744,7 @@ grep -Fqx 'GOETZ_E2E_PASSWORD=never-export-admin-password' "$ipv6_auth_record" |
 ! grep -q '^GOETZ_E2E_ALLOW_REMOTE=' "$ipv6_auth_record" ||
   fail 'bracketed IPv6 authenticated loopback received remote opt-in'
 
-for public_command in test:public test:capture; do
+for public_command in test:public; do
   for mixed_pair in \
     'http://localhost:18080 https://redirect.invalid' \
     'https://caller-base.invalid http://127.0.0.1:18080'; do
@@ -696,7 +778,7 @@ grep -Fqx 'GOETZ_E2E_PASSWORD=never-export-admin-password' "$local_auth_record" 
 grep -Fq '<playwright-auth-local>' "$local_auth_record" ||
   fail 'local authenticated browser run did not use the local-only host-gateway service'
 
-for public_command in test:public test:capture; do
+for public_command in test:public; do
   reset_fake_docker
   run_browser_fixture "$public_command" --grep 'public words' ||
     fail "synthetic browser invocation failed unexpectedly: $public_command"
@@ -714,7 +796,7 @@ for public_command in test:public test:capture; do
     fail "$public_command focused arguments were not quoted and forwarded intact"
 done
 
-for public_command in test:public test:capture; do
+for public_command in test:public; do
   reset_fake_docker
   /usr/bin/env -i \
     HOME="$fixture/home" \
@@ -732,6 +814,127 @@ for public_command in test:public test:capture; do
       fail "$public_command local run received an auth-only variable: $auth_name"
   done
 done
+
+reset_fake_docker
+/usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  GOETZ_REFERENCE_URL=https://must-not-reach-contract.invalid \
+  GOETZ_REFERENCE_ALLOW_OVERRIDE=1 \
+  /bin/bash "$fixture/manager.sh" test:capture --grep 'reference capture contract' ||
+  fail 'synthetic capture-contract invocation failed unexpectedly'
+assert_no_browser_environment "$fixture/bin/docker-record.1"
+assert_no_browser_environment "$fixture/bin/docker-record.2"
+capture_contract_record="$fixture/bin/docker-record.3"
+grep -Fq '<playwright-capture>' "$capture_contract_record" ||
+  fail 'test:capture did not use the dedicated capture service'
+grep -Fqx 'GOETZ_CAPTURE_MODE=contract' "$capture_contract_record" ||
+  fail 'test:capture did not select non-writing contract mode'
+for name in GOETZ_REFERENCE_URL GOETZ_REFERENCE_ALLOW_OVERRIDE GOETZ_REFERENCE_EXPECT_ORIGIN \
+  GOETZ_REFERENCE_OVERRIDE_APPROVED \
+  GOETZ_E2E_ALLOW_REMOTE GOETZ_E2E_USER GOETZ_E2E_PASSWORD GOETZ_BASE_URL; do
+  ! grep -q "^${name}=" "$capture_contract_record" ||
+    fail "capture-contract invocation received an unapproved variable: $name"
+done
+grep -Fq '<--grep> <reference capture contract>' "$capture_contract_record" ||
+  fail 'capture-contract focused arguments were not quoted and forwarded intact'
+
+reset_fake_docker
+/usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  GOETZ_REFERENCE_URL=https://goetzlegal.com \
+  /bin/bash "$fixture/manager.sh" visual:capture-reference ||
+  fail 'synthetic one-time reference capture invocation failed unexpectedly'
+assert_no_browser_environment "$fixture/bin/docker-record.1"
+assert_no_browser_environment "$fixture/bin/docker-record.2"
+capture_write_record="$fixture/bin/docker-record.3"
+grep -Fq '<playwright-capture>' "$capture_write_record" ||
+  fail 'visual:capture-reference did not use the dedicated capture service'
+grep -Fqx 'GOETZ_CAPTURE_MODE=write' "$capture_write_record" ||
+  fail 'visual:capture-reference did not select immutable write mode'
+grep -Fqx 'GOETZ_REFERENCE_URL=https://goetzlegal.com/' "$capture_write_record" ||
+  fail 'visual:capture-reference did not forward the canonical default reference URL'
+grep -Fqx 'GOETZ_REFERENCE_EXPECT_ORIGIN=https://goetzlegal.com' "$capture_write_record" ||
+  fail 'visual:capture-reference did not forward the exact expected origin'
+for name in GOETZ_REFERENCE_ALLOW_OVERRIDE GOETZ_REFERENCE_OVERRIDE_APPROVED \
+  GOETZ_E2E_ALLOW_REMOTE GOETZ_E2E_USER \
+  GOETZ_E2E_PASSWORD GOETZ_BASE_URL; do
+  ! grep -q "^${name}=" "$capture_write_record" ||
+    fail "reference capture received an unapproved variable: $name"
+done
+
+reset_fake_docker
+if /usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  GOETZ_REFERENCE_URL=https://override.invalid \
+  /bin/bash "$fixture/manager.sh" visual:capture-reference >/dev/null 2>&1; then
+  fail 'non-default reference capture succeeded without explicit override approval'
+fi
+[[ ! -e "$fixture/bin/docker-record" ]] ||
+  fail 'unapproved reference override invoked Docker before rejection'
+
+reset_fake_docker
+/usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  GOETZ_REFERENCE_URL=https://override.invalid \
+  GOETZ_REFERENCE_EXPECT_ORIGIN=https://override.invalid \
+  GOETZ_REFERENCE_ALLOW_OVERRIDE=1 \
+  /bin/bash "$fixture/manager.sh" visual:capture-reference ||
+  fail 'fully approved exact HTTPS reference override was rejected'
+approved_override_record="$fixture/bin/docker-record.3"
+grep -Fqx 'GOETZ_REFERENCE_URL=https://override.invalid/' "$approved_override_record" ||
+  fail 'approved reference override was not canonicalized before forwarding'
+grep -Fqx 'GOETZ_REFERENCE_EXPECT_ORIGIN=https://override.invalid' "$approved_override_record" ||
+  fail 'approved reference expected origin was not canonicalized before forwarding'
+grep -Fqx 'GOETZ_REFERENCE_OVERRIDE_APPROVED=1' "$approved_override_record" ||
+  fail 'approved non-default reference did not receive manager-issued runtime approval'
+! grep -q '^GOETZ_REFERENCE_ALLOW_OVERRIDE=' "$approved_override_record" ||
+  fail 'caller reference approval flag reached the capture container'
+
+reset_fake_docker
+if /usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  GOETZ_REFERENCE_URL=https://override.invalid \
+  GOETZ_REFERENCE_EXPECT_ORIGIN=https://different.invalid \
+  GOETZ_REFERENCE_ALLOW_OVERRIDE=1 \
+  /bin/bash "$fixture/manager.sh" visual:capture-reference >/dev/null 2>&1; then
+  fail 'reference override accepted a mismatched caller expected origin'
+fi
+[[ ! -e "$fixture/bin/docker-record" ]] ||
+  fail 'mismatched reference expected origin invoked Docker before rejection'
+
+for rejected_reference in \
+  'http://goetzlegal.com' \
+  'https://synthetic-user@goetzlegal.com' \
+  'https://goetzlegal.com/path' \
+  'https://goetzlegal.com/?query=1' \
+  'https://goetzlegal.com/#fragment'; do
+  reset_fake_docker
+  if /usr/bin/env -i \
+    HOME="$fixture/home" \
+    PATH="$fixture/bin:/usr/bin:/bin" \
+    GOETZ_REFERENCE_URL="$rejected_reference" \
+    GOETZ_REFERENCE_ALLOW_OVERRIDE=1 \
+    /bin/bash "$fixture/manager.sh" visual:capture-reference >/dev/null 2>&1; then
+    fail 'reference capture accepted a non-exact HTTPS origin URL'
+  fi
+  [[ ! -e "$fixture/bin/docker-record" ]] ||
+    fail 'invalid reference target invoked Docker before rejection'
+done
+
+reset_fake_docker
+if /usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  /bin/bash "$fixture/manager.sh" visual:capture-reference unexpected >/dev/null 2>&1; then
+  fail 'visual:capture-reference accepted positional arguments'
+fi
+[[ ! -e "$fixture/bin/docker-record" ]] ||
+  fail 'invalid visual:capture-reference arguments invoked Docker'
 
 compose_service_block() {
   local service="$1"
@@ -777,6 +980,46 @@ assert_bind_sources_allowlisted() {
     (( accepted == 1 )) || fail "$service exposes an unapproved bind source: $source"
   done <<< "$block"
 }
+
+playwright_capture_block="$(compose_service_block playwright-capture)"
+[[ -n "$playwright_capture_block" ]] || fail 'dedicated Playwright capture service is missing'
+grep -Eq '^[[:space:]]*user:[[:space:]]*"?1000:1000"?[[:space:]]*$' <<< "$playwright_capture_block" ||
+  fail 'capture Playwright must run as the non-root repository user'
+grep -Eq '^[[:space:]]*read_only:[[:space:]]*true[[:space:]]*$' <<< "$playwright_capture_block" ||
+  fail 'capture Playwright root filesystem must be read-only'
+grep -Eq '^[[:space:]]*-[[:space:]]*ALL[[:space:]]*$' <<< "$playwright_capture_block" ||
+  fail 'capture Playwright must drop all Linux capabilities'
+grep -Fq 'no-new-privileges:true' <<< "$playwright_capture_block" ||
+  fail 'capture Playwright must disable privilege escalation'
+grep -Eq '^[[:space:]]*shm_size:[[:space:]]*' <<< "$playwright_capture_block" ||
+  fail 'capture Playwright must use private shared memory'
+! grep -Eq '^[[:space:]]*(network_mode|ipc):[[:space:]]*host([[:space:]]|$)' <<< "$playwright_capture_block" ||
+  fail 'capture Playwright must not share host network or IPC namespaces'
+! grep -Fq 'host.docker.internal' <<< "$playwright_capture_block" ||
+  fail 'remote-only capture Playwright must not receive a local host-gateway route'
+! grep -Fq 'GOETZ_COMPOSE_HOST_GATEWAY' <<< "$playwright_capture_block" ||
+  fail 'remote-only capture Playwright must not enable localhost resolver mapping'
+! grep -Fq 'GOETZ_AUTH_STATE_PATH' <<< "$playwright_capture_block" ||
+  fail 'capture Playwright must not receive authenticated state'
+for forbidden_name in GOETZ_E2E_ALLOW_REMOTE GOETZ_E2E_USER GOETZ_E2E_PASSWORD; do
+  ! grep -Fq "$forbidden_name" <<< "$playwright_capture_block" ||
+    fail "capture Playwright statically defines an auth-only setting: $forbidden_name"
+done
+grep -Fq 'GOETZ_CAPTURE_OUTPUT_DIR: /work/fixtures' <<< "$playwright_capture_block" ||
+  fail 'capture output must be statically pinned to the sole writable fixture mount'
+assert_bind_sources_allowlisted playwright-capture \
+  ./tests/e2e ./__dev/playwright/capture-node-modules \
+  ./artifacts/playwright/capture ./tests/visual/fixtures/legacy
+for required_mount in \
+  './tests/e2e:/work/e2e:ro' \
+  './__dev/playwright/capture-node-modules:/work/e2e/node_modules' \
+  './artifacts/playwright/capture:/work/artifacts' \
+  './tests/visual/fixtures/legacy:/work/fixtures'; do
+  grep -Fq "$required_mount" <<< "$playwright_capture_block" ||
+    fail "capture Playwright narrow mount is missing: $required_mount"
+done
+[[ "$(grep -Ec '^[[:space:]]*-[[:space:]]+\./tests/visual/fixtures/legacy:/work/fixtures([[:space:]]|$)' <<< "$playwright_capture_block")" -eq 1 ]] ||
+  fail 'capture Playwright must have exactly one tracked writable fixture mount'
 
 playwright_block="$(compose_service_block playwright)"
 ! grep -Eq '^[[:space:]]*network_mode:[[:space:]]*host([[:space:]]|$)' <<< "$playwright_block" ||
@@ -969,7 +1212,7 @@ for required_mount in \
     fail "Composer narrow mount is missing: $required_mount"
 done
 
-for service in playwright playwright-local playwright-auth playwright-auth-local playwright-installer node wpcli composer; do
+for service in playwright playwright-local playwright-auth playwright-auth-local playwright-capture playwright-installer node wpcli composer; do
   service_block="$(compose_service_block "$service")"
   ! grep -Eq '^[[:space:]]*-[[:space:]]+\.:/' <<< "$service_block" ||
     fail "$service must not bind-mount the repository root"
@@ -1071,13 +1314,16 @@ grep -Fq 'isLoopbackURL(baseURL)' tests/e2e/global-setup.ts ||
   fail 'authenticated global setup does not use the shared browser loopback classifier'
 for playwright_config in \
   tests/e2e/playwright.config.ts \
-  tests/e2e/playwright.public.config.ts \
-  tests/e2e/playwright.capture.config.ts; do
+  tests/e2e/playwright.public.config.ts; do
   grep -Fq 'GOETZ_ARTIFACT_DIR' "$playwright_config" ||
     fail "Playwright config does not use the narrow artifact mount: $playwright_config"
   grep -Fq 'wordpressLaunchOptions(baseURL)' "$playwright_config" ||
     fail "Playwright config does not conditionally use the local WordPress bridge route: $playwright_config"
 done
+grep -Fq 'GOETZ_REFERENCE_URL' tests/e2e/playwright.capture.config.ts ||
+  fail 'capture Playwright config does not use its dedicated reference target'
+grep -Fq 'GOETZ_ARTIFACT_DIR' tests/e2e/playwright.capture.config.ts ||
+  fail 'capture Playwright config does not use the narrow capture artifact mount'
 grep -Fq 'GOETZ_AUTH_STATE_PATH' tests/e2e/playwright.config.ts ||
   fail 'authenticated Playwright config does not use the narrow state mount'
 for auth_state_consumer in \

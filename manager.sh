@@ -15,8 +15,16 @@ CALLER_GOETZ_E2E_USER_SET="${GOETZ_E2E_USER+x}"
 CALLER_GOETZ_E2E_USER="${GOETZ_E2E_USER-}"
 CALLER_GOETZ_E2E_PASSWORD_SET="${GOETZ_E2E_PASSWORD+x}"
 CALLER_GOETZ_E2E_PASSWORD="${GOETZ_E2E_PASSWORD-}"
+CALLER_GOETZ_REFERENCE_URL_SET="${GOETZ_REFERENCE_URL+x}"
+CALLER_GOETZ_REFERENCE_URL="${GOETZ_REFERENCE_URL-}"
+CALLER_GOETZ_REFERENCE_EXPECT_ORIGIN_SET="${GOETZ_REFERENCE_EXPECT_ORIGIN+x}"
+CALLER_GOETZ_REFERENCE_EXPECT_ORIGIN="${GOETZ_REFERENCE_EXPECT_ORIGIN-}"
+CALLER_GOETZ_REFERENCE_ALLOW_OVERRIDE_SET="${GOETZ_REFERENCE_ALLOW_OVERRIDE+x}"
+CALLER_GOETZ_REFERENCE_ALLOW_OVERRIDE="${GOETZ_REFERENCE_ALLOW_OVERRIDE-}"
 unset GOETZ_BASE_URL GOETZ_EXPECT_ORIGIN GOETZ_EXPECT_PRODUCTION
 unset GOETZ_E2E_ALLOW_REMOTE GOETZ_E2E_USER GOETZ_E2E_PASSWORD
+unset GOETZ_REFERENCE_URL GOETZ_REFERENCE_ALLOW_OVERRIDE
+unset GOETZ_REFERENCE_EXPECT_ORIGIN GOETZ_REFERENCE_OVERRIDE_APPROVED GOETZ_CAPTURE_MODE
 unset SSH_KEY_PW
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WP_PATH=/var/www/html
@@ -36,6 +44,8 @@ source "${ROOT_DIR}/.env"
 unset SSH_KEY_PW
 unset GOETZ_BASE_URL GOETZ_EXPECT_ORIGIN GOETZ_EXPECT_PRODUCTION
 unset GOETZ_E2E_ALLOW_REMOTE GOETZ_E2E_USER GOETZ_E2E_PASSWORD
+unset GOETZ_REFERENCE_URL GOETZ_REFERENCE_ALLOW_OVERRIDE
+unset GOETZ_REFERENCE_EXPECT_ORIGIN GOETZ_REFERENCE_OVERRIDE_APPROVED GOETZ_CAPTURE_MODE
 
 docker_cli() {
   local -a clean_env=(
@@ -65,7 +75,9 @@ docker_cli() {
 
   for process_variable in \
     GOETZ_BASE_URL GOETZ_EXPECT_ORIGIN GOETZ_EXPECT_PRODUCTION \
-    GOETZ_E2E_ALLOW_REMOTE GOETZ_E2E_USER GOETZ_E2E_PASSWORD; do
+    GOETZ_E2E_ALLOW_REMOTE GOETZ_E2E_USER GOETZ_E2E_PASSWORD \
+    GOETZ_REFERENCE_URL GOETZ_REFERENCE_EXPECT_ORIGIN \
+    GOETZ_REFERENCE_OVERRIDE_APPROVED GOETZ_CAPTURE_MODE; do
     if [[ -v "${process_variable}" ]]; then
       clean_env+=("${process_variable}=${!process_variable}")
     fi
@@ -426,8 +438,11 @@ readonly PLAYWRIGHT_AUTH_STATE="${PLAYWRIGHT_STATE_DIR}/auth-state.json"
 readonly PLAYWRIGHT_LEGACY_AUTH_STATE="${PLAYWRIGHT_WORK_DIR}/auth-state.json"
 readonly PLAYWRIGHT_AUTH_MODULES="${PLAYWRIGHT_WORK_DIR}/auth-node-modules"
 readonly PLAYWRIGHT_PUBLIC_MODULES="${PLAYWRIGHT_WORK_DIR}/public-node-modules"
+readonly PLAYWRIGHT_CAPTURE_MODULES="${PLAYWRIGHT_WORK_DIR}/capture-node-modules"
 readonly PLAYWRIGHT_AUTH_ARTIFACTS="${ROOT_DIR}/artifacts/playwright/auth"
 readonly PLAYWRIGHT_PUBLIC_ARTIFACTS="${ROOT_DIR}/artifacts/playwright/public"
+readonly PLAYWRIGHT_CAPTURE_ARTIFACTS="${ROOT_DIR}/artifacts/playwright/capture"
+readonly PLAYWRIGHT_REFERENCE_FIXTURES="${ROOT_DIR}/tests/visual/fixtures/legacy"
 
 cleanup_playwright_auth_state() {
   rm -f -- "$PLAYWRIGHT_AUTH_STATE" "${PLAYWRIGHT_AUTH_STATE}.tmp."*
@@ -445,6 +460,14 @@ prepare_playwright_paths() {
     "$PLAYWRIGHT_STATE_DIR" \
     "$PLAYWRIGHT_AUTH_MODULES" \
     "$PLAYWRIGHT_AUTH_ARTIFACTS"
+}
+
+prepare_playwright_capture_paths() {
+  mkdir -p \
+    "$PLAYWRIGHT_CAPTURE_MODULES" \
+    "$PLAYWRIGHT_CAPTURE_ARTIFACTS" \
+    "$PLAYWRIGHT_REFERENCE_FIXTURES"
+  chmod 0700 "$PLAYWRIGHT_CAPTURE_MODULES" "$PLAYWRIGHT_CAPTURE_ARTIFACTS"
 }
 
 invoke_playwright_child() {
@@ -566,8 +589,102 @@ test_public() {
   run_playwright test:public no "$@"
 }
 
+invoke_capture_child() {
+  local mode="$1"
+  local reference_url="$2"
+  local expected_origin="$3"
+  local override_approved="$4"
+  shift 4
+
+  local GOETZ_CAPTURE_MODE="$mode"
+  local -a environment_args=(-e GOETZ_CAPTURE_MODE)
+  if [[ "$mode" == 'write' ]]; then
+    local GOETZ_REFERENCE_URL="$reference_url"
+    local GOETZ_REFERENCE_EXPECT_ORIGIN="$expected_origin"
+    environment_args+=(-e GOETZ_REFERENCE_URL -e GOETZ_REFERENCE_EXPECT_ORIGIN)
+    if [[ "$override_approved" == '1' ]]; then
+      local GOETZ_REFERENCE_OVERRIDE_APPROVED=1
+      environment_args+=(-e GOETZ_REFERENCE_OVERRIDE_APPROVED)
+    fi
+  fi
+
+  compose run --rm -w /work/e2e "${environment_args[@]}" \
+    playwright-capture npm run test:capture -- "$@"
+}
+
 test_capture() {
-  run_playwright test:capture no "$@"
+  need_docker
+  prepare_playwright_capture_paths
+  compose run --rm -w /work/e2e playwright-capture npm ci
+  local GOETZ_CAPTURE_MODE=contract
+  invoke_capture_child "$GOETZ_CAPTURE_MODE" '' '' '' "$@"
+}
+
+canonical_reference_url() {
+  local value="$1"
+  local origin
+
+  [[ "$value" =~ ^[Hh][Tt][Tt][Pp][Ss]://[^/?#]+/?$ ]] || return 1
+  origin="$(canonical_http_origin "$value")" || return 1
+  [[ "$origin" == https://* ]] || return 1
+  printf '%s/\n' "$origin"
+}
+
+visual_capture_reference() {
+  (( $# == 0 )) || {
+    echo 'visual:capture-reference does not accept additional arguments.' >&2
+    return 2
+  }
+
+  local reference_url='https://goetzlegal.com/'
+  if [[ -n "$CALLER_GOETZ_REFERENCE_URL_SET" ]]; then
+    reference_url="$(canonical_reference_url "$CALLER_GOETZ_REFERENCE_URL")" || {
+      echo 'Reference capture URL validation failed.' >&2
+      return 2
+    }
+  fi
+
+  if [[ "$reference_url" != 'https://goetzlegal.com/' ]]; then
+    [[ -n "$CALLER_GOETZ_REFERENCE_ALLOW_OVERRIDE_SET" &&
+      "$CALLER_GOETZ_REFERENCE_ALLOW_OVERRIDE" == '1' ]] || {
+      echo 'A non-default reference requires explicit override approval.' >&2
+      return 2
+    }
+  fi
+
+  local expected_origin="${reference_url%/}"
+  local override_approved=''
+  if [[ "$reference_url" != 'https://goetzlegal.com/' ]]; then
+    [[ -n "$CALLER_GOETZ_REFERENCE_EXPECT_ORIGIN_SET" ]] || {
+      echo 'A non-default reference requires an explicit expected origin.' >&2
+      return 2
+    }
+    local caller_expected_url
+    caller_expected_url="$(canonical_reference_url "$CALLER_GOETZ_REFERENCE_EXPECT_ORIGIN")" || {
+      echo 'Reference expected-origin validation failed.' >&2
+      return 2
+    }
+    [[ "${caller_expected_url%/}" == "$expected_origin" ]] || {
+      echo 'Reference URL and expected origin must match.' >&2
+      return 2
+    }
+    override_approved='1'
+  elif [[ -n "$CALLER_GOETZ_REFERENCE_EXPECT_ORIGIN_SET" ]]; then
+    local caller_default_expected_url
+    caller_default_expected_url="$(canonical_reference_url "$CALLER_GOETZ_REFERENCE_EXPECT_ORIGIN")" || {
+      echo 'Reference expected-origin validation failed.' >&2
+      return 2
+    }
+    [[ "${caller_default_expected_url%/}" == "$expected_origin" ]] || {
+      echo 'Reference URL and expected origin must match.' >&2
+      return 2
+    }
+  fi
+  need_docker
+  prepare_playwright_capture_paths
+  compose run --rm -w /work/e2e playwright-capture npm ci
+  local GOETZ_CAPTURE_MODE=write
+  invoke_capture_child "$GOETZ_CAPTURE_MODE" "$reference_url" "$expected_origin" "$override_approved"
 }
 
 test_e2e() {
@@ -682,6 +799,7 @@ case "${1:-help}" in
   test:e2e:auth) shift; test_e2e_auth "$@" ;;
   test:public) shift; test_public "$@" ;;
   test:capture) shift; test_capture "$@" ;;
+  visual:capture-reference) shift; visual_capture_reference "$@" ;;
   test:e2e) shift; test_e2e "$@" ;;
   test:all) shift; test_all "$@" ;;
   migrate:scan) shift; migrate_scan "$@" ;;
@@ -714,6 +832,7 @@ Commands:
   test:e2e:auth    Run authenticated Playwright tests
   test:public      Run unauthenticated frontend/SEO/accessibility/visual tests
   test:capture     Run only the read-only legacy capture tests
+  visual:capture-reference  Write the one-time immutable legacy homepage baseline
   test:e2e         Run authenticated and public tests against local WordPress
   test:all         Run all local contracts, unit, integration, compat, and E2E tests
   migrate:scan     Dry-run source discovery/import preview
