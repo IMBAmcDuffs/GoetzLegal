@@ -442,7 +442,7 @@ readonly PLAYWRIGHT_CAPTURE_MODULES="${PLAYWRIGHT_WORK_DIR}/capture-node-modules
 readonly PLAYWRIGHT_AUTH_ARTIFACTS="${ROOT_DIR}/artifacts/playwright/auth"
 readonly PLAYWRIGHT_PUBLIC_ARTIFACTS="${ROOT_DIR}/artifacts/playwright/public"
 readonly PLAYWRIGHT_CAPTURE_ARTIFACTS="${ROOT_DIR}/artifacts/playwright/capture"
-readonly PLAYWRIGHT_REFERENCE_FIXTURES="${ROOT_DIR}/tests/visual/fixtures/legacy"
+readonly PLAYWRIGHT_REFERENCE_FIXTURES_PARENT="${ROOT_DIR}/tests/visual/fixtures"
 
 cleanup_playwright_auth_state() {
   rm -f -- "$PLAYWRIGHT_AUTH_STATE" "${PLAYWRIGHT_AUTH_STATE}.tmp."*
@@ -466,7 +466,7 @@ prepare_playwright_capture_paths() {
   mkdir -p \
     "$PLAYWRIGHT_CAPTURE_MODULES" \
     "$PLAYWRIGHT_CAPTURE_ARTIFACTS" \
-    "$PLAYWRIGHT_REFERENCE_FIXTURES"
+    "$PLAYWRIGHT_REFERENCE_FIXTURES_PARENT"
   chmod 0700 "$PLAYWRIGHT_CAPTURE_MODULES" "$PLAYWRIGHT_CAPTURE_ARTIFACTS"
 }
 
@@ -598,7 +598,9 @@ invoke_capture_child() {
 
   local GOETZ_CAPTURE_MODE="$mode"
   local -a environment_args=(-e GOETZ_CAPTURE_MODE)
+  local playwright_service='playwright-capture'
   if [[ "$mode" == 'write' ]]; then
+    playwright_service='playwright-capture-write'
     local GOETZ_REFERENCE_URL="$reference_url"
     local GOETZ_REFERENCE_EXPECT_ORIGIN="$expected_origin"
     environment_args+=(-e GOETZ_REFERENCE_URL -e GOETZ_REFERENCE_EXPECT_ORIGIN)
@@ -609,10 +611,49 @@ invoke_capture_child() {
   fi
 
   compose run --rm -w /work/e2e "${environment_args[@]}" \
-    playwright-capture npm run test:capture -- "$@"
+    "$playwright_service" npm run test:capture -- "$@"
+}
+
+validate_capture_test_args() {
+  local seen_grep=''
+  local seen_list=''
+
+  while (( $# > 0 )); do
+    case "$1" in
+      --list)
+        [[ -z "$seen_list" ]] || {
+          echo 'test:capture accepts --list at most once.' >&2
+          return 2
+        }
+        seen_list=1
+        shift
+        ;;
+      --grep)
+        [[ -z "$seen_grep" && $# -ge 2 && -n "${2-}" && "${2-}" != --* ]] || {
+          echo 'test:capture requires one non-empty --grep value.' >&2
+          return 2
+        }
+        seen_grep=1
+        shift 2
+        ;;
+      --grep=*)
+        [[ -z "$seen_grep" && -n "${1#--grep=}" ]] || {
+          echo 'test:capture requires one non-empty --grep value.' >&2
+          return 2
+        }
+        seen_grep=1
+        shift
+        ;;
+      *)
+        echo 'test:capture accepts only --list and one non-empty --grep value.' >&2
+        return 2
+        ;;
+    esac
+  done
 }
 
 test_capture() {
+  validate_capture_test_args "$@" || return
   need_docker
   prepare_playwright_capture_paths
   compose run --rm -w /work/e2e playwright-capture npm ci

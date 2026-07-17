@@ -283,7 +283,8 @@ for required_capture_marker in \
   'browser_version' \
   'browser_name' \
   'device_scale_factor'; do
-  grep -Fq "$required_capture_marker" tests/e2e/capture-reference.spec.ts ||
+  grep -Fq "$required_capture_marker" \
+    tests/e2e/capture-reference.spec.ts tests/e2e/helpers/capture-transaction.ts ||
     fail "capture specification is missing deterministic geometry marker: $required_capture_marker"
 done
 grep -Fq 'practiceIconSelector' tests/e2e/helpers/settle-page.ts ||
@@ -294,6 +295,21 @@ grep -Fq 'await assertPracticeIconsComplete(page);' tests/e2e/capture-reference.
   fail 'live capture does not require all seven practice icons to reach their final state'
 [[ "$(grep -Fc 'assertFinalReferenceLocation(page, target)' tests/e2e/capture-reference.spec.ts)" -ge 2 ]] ||
   fail 'capture must revalidate the exact final location after settlement and before screenshot geometry'
+grep -Fq 'const imageBuffer = await captureApprovedScreenshot(page, target, screenshotPath);' \
+  tests/e2e/capture-reference.spec.ts ||
+  fail 'capture must revalidate the exact final location after screenshot completion'
+awk '
+  previous ~ /assertFinalReferenceLocation\(page, target\);/ &&
+    /viewports\[viewport.key\] = \{/ { found = 1 }
+  { previous = $0 }
+  END { exit(found ? 0 : 1) }
+' tests/e2e/capture-reference.spec.ts ||
+  fail 'capture must revalidate the exact final location immediately before accepting each viewport'
+grep -Fq 'await rename(stagingDir, finalDir);' tests/e2e/helpers/capture-transaction.ts ||
+  fail 'capture publication must use one same-filesystem directory rename'
+! grep -Eq '(^|[^[:alnum:]_])(link|symlink)\(' \
+  tests/e2e/capture-reference.spec.ts tests/e2e/helpers/capture-transaction.ts ||
+  fail 'capture publication must not expose partial final files through per-file links'
 
 inspect_release() {
   local release_dir="$1"
@@ -825,9 +841,16 @@ reset_fake_docker
   fail 'synthetic capture-contract invocation failed unexpectedly'
 assert_no_browser_environment "$fixture/bin/docker-record.1"
 assert_no_browser_environment "$fixture/bin/docker-record.2"
+capture_contract_install_record="$fixture/bin/docker-record.2"
+grep -Fq '<playwright-capture>' "$capture_contract_install_record" ||
+  fail 'capture npm dependencies were not installed through the read-only contract service'
+! grep -Fq '<playwright-capture-write>' "$capture_contract_install_record" ||
+  fail 'capture npm dependencies were installed through the writable service'
 capture_contract_record="$fixture/bin/docker-record.3"
 grep -Fq '<playwright-capture>' "$capture_contract_record" ||
   fail 'test:capture did not use the dedicated capture service'
+! grep -Fq '<playwright-capture-write>' "$capture_contract_record" ||
+  fail 'test:capture used the writable capture service'
 grep -Fqx 'GOETZ_CAPTURE_MODE=contract' "$capture_contract_record" ||
   fail 'test:capture did not select non-writing contract mode'
 for name in GOETZ_REFERENCE_URL GOETZ_REFERENCE_ALLOW_OVERRIDE GOETZ_REFERENCE_EXPECT_ORIGIN \
@@ -838,6 +861,55 @@ for name in GOETZ_REFERENCE_URL GOETZ_REFERENCE_ALLOW_OVERRIDE GOETZ_REFERENCE_E
 done
 grep -Fq '<--grep> <reference capture contract>' "$capture_contract_record" ||
   fail 'capture-contract focused arguments were not quoted and forwarded intact'
+[[ -d "$fixture/tests/visual/fixtures" ]] ||
+  fail 'capture preparation did not create the fixture parent directory'
+[[ ! -e "$fixture/tests/visual/fixtures/legacy" ]] ||
+  fail 'capture preparation created the immutable final directory before atomic publication'
+
+reset_fake_docker
+/usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  /bin/bash "$fixture/manager.sh" test:capture --list --grep='reference capture contract' ||
+  fail 'approved capture --list/--grep= invocation failed unexpectedly'
+approved_capture_record="$fixture/bin/docker-record.3"
+grep -Fq '<--list> <--grep=reference capture contract>' "$approved_capture_record" ||
+  fail 'approved capture arguments were not quoted and forwarded intact'
+
+for invalid_capture_command in \
+  '--output /work/fixtures' \
+  '--output=/work/fixtures' \
+  '--config alternate.config.ts' \
+  '--config=alternate.config.ts' \
+  '--reporter line' \
+  '--workers 1' \
+  '--project chromium' \
+  '--unknown' \
+  '--grep' \
+  '--grep=' \
+  '--list=unexpected' \
+  'capture-reference.spec.ts'; do
+  reset_fake_docker
+  read -r -a invalid_capture_arguments <<< "$invalid_capture_command"
+  if /usr/bin/env -i \
+    HOME="$fixture/home" \
+    PATH="$fixture/bin:/usr/bin:/bin" \
+    /bin/bash "$fixture/manager.sh" test:capture "${invalid_capture_arguments[@]}" >/dev/null 2>&1; then
+    fail "test:capture accepted a forbidden argument form: $invalid_capture_command"
+  fi
+  [[ ! -e "$fixture/bin/docker-record" ]] ||
+    fail "test:capture invoked Docker before rejecting: $invalid_capture_command"
+done
+
+reset_fake_docker
+if /usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  /bin/bash "$fixture/manager.sh" test:capture --grep '' >/dev/null 2>&1; then
+  fail 'test:capture accepted an empty separated --grep value'
+fi
+[[ ! -e "$fixture/bin/docker-record" ]] ||
+  fail 'test:capture invoked Docker before rejecting an empty --grep value'
 
 reset_fake_docker
 /usr/bin/env -i \
@@ -848,9 +920,15 @@ reset_fake_docker
   fail 'synthetic one-time reference capture invocation failed unexpectedly'
 assert_no_browser_environment "$fixture/bin/docker-record.1"
 assert_no_browser_environment "$fixture/bin/docker-record.2"
+grep -Fq '<playwright-capture>' "$fixture/bin/docker-record.2" ||
+  fail 'visual capture dependencies were not installed through the read-only contract service'
+! grep -Fq '<playwright-capture-write>' "$fixture/bin/docker-record.2" ||
+  fail 'visual capture dependencies were installed through the writable service'
 capture_write_record="$fixture/bin/docker-record.3"
-grep -Fq '<playwright-capture>' "$capture_write_record" ||
-  fail 'visual:capture-reference did not use the dedicated capture service'
+grep -Fq '<playwright-capture-write>' "$capture_write_record" ||
+  fail 'visual:capture-reference did not use the dedicated writable capture service'
+! grep -Fq '<playwright-capture> <npm> <run> <test:capture>' "$capture_write_record" ||
+  fail 'visual:capture-reference executed write mode through the contract service'
 grep -Fqx 'GOETZ_CAPTURE_MODE=write' "$capture_write_record" ||
   fail 'visual:capture-reference did not select immutable write mode'
 grep -Fqx 'GOETZ_REFERENCE_URL=https://goetzlegal.com/' "$capture_write_record" ||
@@ -981,45 +1059,68 @@ assert_bind_sources_allowlisted() {
   done <<< "$block"
 }
 
+assert_capture_service_hardened() {
+  local service="$1"
+  local block
+  block="$(compose_service_block "$service")"
+  [[ -n "$block" ]] || fail "dedicated Playwright capture service is missing: $service"
+  grep -Eq '^[[:space:]]*user:[[:space:]]*"?1000:1000"?[[:space:]]*$' <<< "$block" ||
+    fail "$service must run as the non-root repository user"
+  grep -Eq '^[[:space:]]*read_only:[[:space:]]*true[[:space:]]*$' <<< "$block" ||
+    fail "$service root filesystem must be read-only"
+  grep -Eq '^[[:space:]]*-[[:space:]]*ALL[[:space:]]*$' <<< "$block" ||
+    fail "$service must drop all Linux capabilities"
+  grep -Fq 'no-new-privileges:true' <<< "$block" ||
+    fail "$service must disable privilege escalation"
+  grep -Eq '^[[:space:]]*shm_size:[[:space:]]*' <<< "$block" ||
+    fail "$service must use private shared memory"
+  ! grep -Eq '^[[:space:]]*(network_mode|ipc):[[:space:]]*host([[:space:]]|$)' <<< "$block" ||
+    fail "$service must not share host network or IPC namespaces"
+  ! grep -Fq 'host.docker.internal' <<< "$block" ||
+    fail "$service must not receive a local host-gateway route"
+  ! grep -Fq 'GOETZ_COMPOSE_HOST_GATEWAY' <<< "$block" ||
+    fail "$service must not enable localhost resolver mapping"
+  ! grep -Fq 'GOETZ_AUTH_STATE_PATH' <<< "$block" ||
+    fail "$service must not receive authenticated state"
+  for forbidden_name in GOETZ_E2E_ALLOW_REMOTE GOETZ_E2E_USER GOETZ_E2E_PASSWORD; do
+    ! grep -Fq "$forbidden_name" <<< "$block" ||
+      fail "$service statically defines an auth-only setting: $forbidden_name"
+  done
+  grep -Fq 'GOETZ_CAPTURE_OUTPUT_DIR: /work/fixtures/legacy' <<< "$block" ||
+    fail "$service output must be statically pinned to the immutable legacy directory"
+}
+
+assert_capture_service_hardened playwright-capture
 playwright_capture_block="$(compose_service_block playwright-capture)"
-[[ -n "$playwright_capture_block" ]] || fail 'dedicated Playwright capture service is missing'
-grep -Eq '^[[:space:]]*user:[[:space:]]*"?1000:1000"?[[:space:]]*$' <<< "$playwright_capture_block" ||
-  fail 'capture Playwright must run as the non-root repository user'
-grep -Eq '^[[:space:]]*read_only:[[:space:]]*true[[:space:]]*$' <<< "$playwright_capture_block" ||
-  fail 'capture Playwright root filesystem must be read-only'
-grep -Eq '^[[:space:]]*-[[:space:]]*ALL[[:space:]]*$' <<< "$playwright_capture_block" ||
-  fail 'capture Playwright must drop all Linux capabilities'
-grep -Fq 'no-new-privileges:true' <<< "$playwright_capture_block" ||
-  fail 'capture Playwright must disable privilege escalation'
-grep -Eq '^[[:space:]]*shm_size:[[:space:]]*' <<< "$playwright_capture_block" ||
-  fail 'capture Playwright must use private shared memory'
-! grep -Eq '^[[:space:]]*(network_mode|ipc):[[:space:]]*host([[:space:]]|$)' <<< "$playwright_capture_block" ||
-  fail 'capture Playwright must not share host network or IPC namespaces'
-! grep -Fq 'host.docker.internal' <<< "$playwright_capture_block" ||
-  fail 'remote-only capture Playwright must not receive a local host-gateway route'
-! grep -Fq 'GOETZ_COMPOSE_HOST_GATEWAY' <<< "$playwright_capture_block" ||
-  fail 'remote-only capture Playwright must not enable localhost resolver mapping'
-! grep -Fq 'GOETZ_AUTH_STATE_PATH' <<< "$playwright_capture_block" ||
-  fail 'capture Playwright must not receive authenticated state'
-for forbidden_name in GOETZ_E2E_ALLOW_REMOTE GOETZ_E2E_USER GOETZ_E2E_PASSWORD; do
-  ! grep -Fq "$forbidden_name" <<< "$playwright_capture_block" ||
-    fail "capture Playwright statically defines an auth-only setting: $forbidden_name"
-done
-grep -Fq 'GOETZ_CAPTURE_OUTPUT_DIR: /work/fixtures' <<< "$playwright_capture_block" ||
-  fail 'capture output must be statically pinned to the sole writable fixture mount'
 assert_bind_sources_allowlisted playwright-capture \
   ./tests/e2e ./__dev/playwright/capture-node-modules \
-  ./artifacts/playwright/capture ./tests/visual/fixtures/legacy
+  ./artifacts/playwright/capture ./tests/visual/fixtures
 for required_mount in \
   './tests/e2e:/work/e2e:ro' \
   './__dev/playwright/capture-node-modules:/work/e2e/node_modules' \
   './artifacts/playwright/capture:/work/artifacts' \
-  './tests/visual/fixtures/legacy:/work/fixtures'; do
+  './tests/visual/fixtures:/work/fixtures:ro'; do
   grep -Fq "$required_mount" <<< "$playwright_capture_block" ||
-    fail "capture Playwright narrow mount is missing: $required_mount"
+    fail "capture contract Playwright narrow mount is missing: $required_mount"
 done
-[[ "$(grep -Ec '^[[:space:]]*-[[:space:]]+\./tests/visual/fixtures/legacy:/work/fixtures([[:space:]]|$)' <<< "$playwright_capture_block")" -eq 1 ]] ||
-  fail 'capture Playwright must have exactly one tracked writable fixture mount'
+! grep -Eq '^[[:space:]]*-[[:space:]]+\./tests/visual/fixtures:/work/fixtures([[:space:]]|$)' <<< "$playwright_capture_block" ||
+  fail 'capture contract Playwright fixture parent must be filesystem read-only'
+
+assert_capture_service_hardened playwright-capture-write
+playwright_capture_write_block="$(compose_service_block playwright-capture-write)"
+assert_bind_sources_allowlisted playwright-capture-write \
+  ./tests/e2e ./__dev/playwright/capture-node-modules \
+  ./artifacts/playwright/capture ./tests/visual/fixtures
+for required_mount in \
+  './tests/e2e:/work/e2e:ro' \
+  './__dev/playwright/capture-node-modules:/work/e2e/node_modules:ro' \
+  './artifacts/playwright/capture:/work/artifacts' \
+  './tests/visual/fixtures:/work/fixtures'; do
+  grep -Fq "$required_mount" <<< "$playwright_capture_write_block" ||
+    fail "capture write Playwright narrow mount is missing: $required_mount"
+done
+[[ "$(grep -Ec '^[[:space:]]*-[[:space:]]+\./tests/visual/fixtures:/work/fixtures([[:space:]]|$)' <<< "$playwright_capture_write_block")" -eq 1 ]] ||
+  fail 'capture write Playwright must have exactly one tracked writable fixture-parent mount'
 
 playwright_block="$(compose_service_block playwright)"
 ! grep -Eq '^[[:space:]]*network_mode:[[:space:]]*host([[:space:]]|$)' <<< "$playwright_block" ||
@@ -1212,7 +1313,7 @@ for required_mount in \
     fail "Composer narrow mount is missing: $required_mount"
 done
 
-for service in playwright playwright-local playwright-auth playwright-auth-local playwright-capture playwright-installer node wpcli composer; do
+for service in playwright playwright-local playwright-auth playwright-auth-local playwright-capture playwright-capture-write playwright-installer node wpcli composer; do
   service_block="$(compose_service_block "$service")"
   ! grep -Eq '^[[:space:]]*-[[:space:]]+\.:/' <<< "$service_block" ||
     fail "$service must not bind-mount the repository root"

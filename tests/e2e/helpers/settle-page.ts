@@ -247,52 +247,120 @@ export async function settlePage(
     };
   });
 
-  const scrollPositions: number[] = [];
-  for (const selector of options.sectionSelectors) {
-    const section = page.locator(selector);
-    if (await section.count() !== 1) {
-      throw new Error(`Required settle section must match exactly once: ${selector}`);
-    }
-    await section.evaluate((element) => {
-      element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+  const originalScrollBehavior = await page.evaluate(() => {
+    const snapshot = (element: HTMLElement) => ({
+      value: element.style.getPropertyValue('scroll-behavior'),
+      priority: element.style.getPropertyPriority('scroll-behavior'),
     });
-    scrollPositions.push(await page.evaluate(() => window.scrollY));
-    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
-  }
-
-  await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' }));
-  scrollPositions.push(await page.evaluate(() => window.scrollY));
-
-  await page.waitForFunction(
-    () => Array.from(document.images).every(
-      (image) => image.complete && image.naturalWidth > 0 && image.naturalHeight > 0,
-    ),
-    undefined,
-    { timeout: timeoutMs },
-  );
-
-  const imageCount = await page.evaluate(() => document.images.length);
-  await page.evaluate(async () => {
-    await Promise.all(Array.from(document.images).map((image) => image.decode()));
+    const root = document.documentElement;
+    const body = document.body;
+    const original = { root: snapshot(root), body: snapshot(body) };
+    root.style.setProperty('scroll-behavior', 'auto', 'important');
+    body.style.setProperty('scroll-behavior', 'auto', 'important');
+    return original;
   });
-  const layoutSamples = await waitForLayoutStability(
-    page,
-    options.sectionSelectors,
-    options.practiceItemSelector,
-    options.practiceIconSelector,
-    timeoutMs,
-    requiredStableFrames,
-  );
 
-  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'auto' }));
-  await page.waitForFunction(() => window.scrollY <= 1, undefined, { timeout: timeoutMs });
-
-  return {
-    fontsReady: true,
-    fonts,
-    imageCount,
-    scrollPositions,
-    layoutSamples,
-    finalScrollY: await page.evaluate(() => window.scrollY),
+  const restoreScrollBehavior = async () => {
+    await page.evaluate((original) => {
+      const restore = (
+        element: HTMLElement,
+        value: string,
+        priority: string,
+      ) => {
+        if (value === '') {
+          element.style.removeProperty('scroll-behavior');
+          return;
+        }
+        element.style.setProperty('scroll-behavior', value, priority);
+      };
+      restore(document.documentElement, original.root.value, original.root.priority);
+      restore(document.body, original.body.value, original.body.priority);
+    }, originalScrollBehavior);
   };
+
+  const scrollPositions: number[] = [];
+  try {
+    for (const selector of options.sectionSelectors) {
+      const section = page.locator(selector);
+      if (await section.count() !== 1) {
+        throw new Error(`Required settle section must match exactly once: ${selector}`);
+      }
+      const achievedPosition = await page.evaluate(async (requiredSelector) => {
+        const element = document.querySelector(requiredSelector);
+        if (!(element instanceof HTMLElement)) {
+          throw new Error(`Required settle section is missing: ${requiredSelector}`);
+        }
+        const initialRect = element.getBoundingClientRect();
+        const maximum = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+        const desired = Math.min(
+          maximum,
+          Math.max(
+            0,
+            initialRect.top + window.scrollY - ((window.innerHeight - initialRect.height) / 2),
+          ),
+        );
+        window.scrollTo(0, desired);
+
+        for (let frame = 0; frame < 120; frame += 1) {
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+          const rect = element.getBoundingClientRect();
+          const intersects = rect.bottom > 0 && rect.top < window.innerHeight;
+          if (Math.abs(window.scrollY - desired) <= 1 && intersects) {
+            return window.scrollY;
+          }
+        }
+        throw new Error(`Required settle section did not reach the viewport: ${requiredSelector}`);
+      }, selector);
+      scrollPositions.push(achievedPosition);
+    }
+
+    const bottomPosition = await page.evaluate(async () => {
+      const desired = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      window.scrollTo(0, desired);
+      for (let frame = 0; frame < 120; frame += 1) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        if (Math.abs(window.scrollY - desired) <= 1) {
+          return window.scrollY;
+        }
+      }
+      throw new Error('Document bottom did not reach the viewport before capture.');
+    });
+    scrollPositions.push(bottomPosition);
+
+    await page.waitForFunction(
+      () => Array.from(document.images).every(
+        (image) => image.complete && image.naturalWidth > 0 && image.naturalHeight > 0,
+      ),
+      undefined,
+      { timeout: timeoutMs },
+    );
+
+    const imageCount = await page.evaluate(() => document.images.length);
+    await page.evaluate(async () => {
+      await Promise.all(Array.from(document.images).map((image) => image.decode()));
+    });
+    const layoutSamples = await waitForLayoutStability(
+      page,
+      options.sectionSelectors,
+      options.practiceItemSelector,
+      options.practiceIconSelector,
+      timeoutMs,
+      requiredStableFrames,
+    );
+
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForFunction(() => window.scrollY <= 1, undefined, { timeout: timeoutMs });
+    const finalScrollY = await page.evaluate(() => window.scrollY);
+
+    return {
+      fontsReady: true,
+      fonts,
+      imageCount,
+      scrollPositions,
+      layoutSamples,
+      finalScrollY,
+    };
+  } finally {
+    await restoreScrollBehavior();
+  }
 }

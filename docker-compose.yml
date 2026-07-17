@@ -221,12 +221,36 @@ services:
       HOME: /tmp/playwright-home
       npm_config_cache: /tmp/playwright-cache
       GOETZ_ARTIFACT_DIR: /work/artifacts
-      GOETZ_CAPTURE_OUTPUT_DIR: /work/fixtures
+      GOETZ_CAPTURE_OUTPUT_DIR: /work/fixtures/legacy
     volumes:
       - ./tests/e2e:/work/e2e:ro
       - ./__dev/playwright/capture-node-modules:/work/e2e/node_modules
       - ./artifacts/playwright/capture:/work/artifacts
-      - ./tests/visual/fixtures/legacy:/work/fixtures
+      - ./tests/visual/fixtures:/work/fixtures:ro
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=1g,uid=1000,gid=1000
+    working_dir: /work/e2e
+
+  playwright-capture-write:
+    image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+    init: true
+    user: "1000:1000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    shm_size: "1gb"
+    environment:
+      HOME: /tmp/playwright-home
+      npm_config_cache: /tmp/playwright-cache
+      GOETZ_ARTIFACT_DIR: /work/artifacts
+      GOETZ_CAPTURE_OUTPUT_DIR: /work/fixtures/legacy
+    volumes:
+      - ./tests/e2e:/work/e2e:ro
+      - ./__dev/playwright/capture-node-modules:/work/e2e/node_modules:ro
+      - ./artifacts/playwright/capture:/work/artifacts
+      - ./tests/visual/fixtures:/work/fixtures
     tmpfs:
       - /tmp:rw,nosuid,nodev,size=1g,uid=1000,gid=1000
     working_dir: /work/e2e

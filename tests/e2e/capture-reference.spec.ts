@@ -1,6 +1,5 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import {
-  link,
   lstat,
   mkdir,
   mkdtemp,
@@ -8,19 +7,26 @@ import {
   readdir,
   rm,
   stat,
-  unlink,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { devices, expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { PNG } from 'pngjs';
+import {
+  captureApprovedScreenshot,
+  LEGACY_FIXTURE_NAMES,
+  LEGACY_STAGING_PREFIX,
+  publishCaptureTransaction,
+  recoverCaptureTransaction,
+  validateStagedFixtureSet,
+} from './helpers/capture-transaction';
 import { settlePage } from './helpers/settle-page';
 
 const DEFAULT_REFERENCE_URL = 'https://goetzlegal.com/';
 const DEFAULT_REFERENCE_ORIGIN = 'https://goetzlegal.com';
 const CAPTURE_MODE = process.env.GOETZ_CAPTURE_MODE || 'contract';
-const FIXED_CAPTURE_OUTPUT_DIR = '/work/fixtures';
+const FIXED_CAPTURE_OUTPUT_DIR = '/work/fixtures/legacy';
 
 const VIEWPORTS = [
   { key: '1440x900', width: 1440, height: 900 },
@@ -70,10 +76,7 @@ const COMPONENT_SELECTORS = {
   footer_columns: '#av_section_5 .entry-content-wrapper > .flex_column',
 } as const;
 
-const FIXTURE_NAMES = [
-  ...VIEWPORTS.map(({ key }) => `home-${key}.png`),
-  'geometry.json',
-] as const;
+const FIXTURE_NAMES = LEGACY_FIXTURE_NAMES;
 
 interface ReadOnlyGuard {
   guardPage(page: Page): void;
@@ -193,36 +196,87 @@ async function targetExists(filePath: string): Promise<boolean> {
   }
 }
 
-async function assertTargetsAbsent(outputDir: string, names: readonly string[]): Promise<void> {
-  for (const name of names) {
-    if (await targetExists(path.join(outputDir, name))) {
-      throw new Error(`Immutable capture target already exists: ${name}`);
-    }
-  }
-}
-
-async function publishWithoutOverwrite(
-  stagingDir: string,
-  outputDir: string,
-  names: readonly string[],
-): Promise<void> {
-  await assertTargetsAbsent(outputDir, names);
-  const published: string[] = [];
-
-  try {
-    for (const name of names) {
-      const targetPath = path.join(outputDir, name);
-      await link(path.join(stagingDir, name), targetPath);
-      published.push(targetPath);
-    }
-  } catch (error) {
-    await Promise.all(published.map((publishedPath) => unlink(publishedPath).catch(() => undefined)));
-    throw error;
-  }
-}
-
 async function sha256(filePath: string): Promise<string> {
   return createHash('sha256').update(await readFile(filePath)).digest('hex');
+}
+
+async function writeSyntheticFixtureStage(stagingDir: string, seed = 'fixture'): Promise<void> {
+  await mkdir(stagingDir, { mode: 0o700 });
+  const files: Record<string, {
+    sha256: string;
+    bytes: number;
+    pixel_width: number;
+    pixel_height: number;
+  }> = {};
+  const viewports: Record<string, unknown> = {};
+  const components: Record<string, unknown> = {};
+
+  for (const viewport of VIEWPORTS) {
+    const fileName = `home-${viewport.key}.png`;
+    const image = new PNG({ width: viewport.width, height: viewport.height });
+    image.data.fill(seed.length % 255);
+    const bytes = PNG.sync.write(image);
+    await writeFile(path.join(stagingDir, fileName), bytes, { flag: 'wx' });
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    files[fileName] = {
+      sha256: digest,
+      bytes: bytes.length,
+      pixel_width: viewport.width,
+      pixel_height: viewport.height,
+    };
+    viewports[viewport.key] = {
+      viewport: { width: viewport.width, height: viewport.height, device_scale_factor: 1 },
+      http_status: 200,
+      final_url: 'https://reference.invalid/',
+      document: {
+        scroll_width: viewport.width,
+        scroll_height: viewport.height * 4,
+        body_width: viewport.width,
+        body_height: viewport.height * 4,
+      },
+      settlement: {
+        scrollPositions: [0, viewport.height, viewport.height * 2, viewport.height * 3],
+        finalScrollY: 0,
+      },
+      images_complete: true,
+      returned_to_top: true,
+      png: {
+        file: fileName,
+        sha256: digest,
+        bytes: bytes.length,
+        pixel_width: viewport.width,
+        pixel_height: viewport.height,
+      },
+    };
+    components[viewport.key] = { synthetic: [] };
+  }
+
+  await writeFile(
+    path.join(stagingDir, 'geometry.json'),
+    `${JSON.stringify({
+      schema_version: 1,
+      reference_url: 'https://reference.invalid/',
+      reference_origin: 'https://reference.invalid',
+      captured_at_utc: '2026-07-17T00:00:00.000Z',
+      browser_name: 'chromium',
+      browser_version: 'synthetic',
+      device_scale_factor: 1,
+      read_only_contract: {
+        allowed_methods: ['GET', 'HEAD'],
+        blocked_requests: [],
+        service_workers: 'blocked',
+        downloads: 'blocked',
+        popups: 'blocked',
+        fixture_overwrite: 'refused',
+      },
+      dynamic_masks: [],
+      viewport_order: VIEWPORTS.map(({ key }) => key),
+      viewports,
+      components,
+      files,
+    })}\n`,
+    { flag: 'wx' },
+  );
 }
 
 async function installReadOnlyGuard(context: BrowserContext): Promise<ReadOnlyGuard> {
@@ -402,6 +456,16 @@ async function measureComponents(page: Page): Promise<Record<string, ElementGeom
 test.describe('reference capture contract', () => {
   test.skip(CAPTURE_MODE !== 'contract', 'Synthetic contracts run only in non-writing mode.');
 
+  test('exposes the directory transaction and approved-screenshot API', async () => {
+    const modulePath = './helpers/capture-transaction';
+    await expect(import(modulePath)).resolves.toMatchObject({
+      captureApprovedScreenshot: expect.any(Function),
+      publishCaptureTransaction: expect.any(Function),
+      recoverCaptureTransaction: expect.any(Function),
+      validateStagedFixtureSet: expect.any(Function),
+    });
+  });
+
   test('waits for delayed fonts and lazy images, activates sections, stabilizes, and returns to top', async ({ page }) => {
     let fontRequested = false;
     let imageRequested = false;
@@ -430,6 +494,7 @@ test.describe('reference capture contract', () => {
         body: `<!doctype html>
           <style>
             @font-face { font-family: contract-delayed; src: url('/font.woff2') format('woff2'); }
+            html { scroll-behavior: smooth; }
             html, body { margin: 0; font-family: contract-delayed, sans-serif; }
             [data-section] { min-height: 700px; }
           </style>
@@ -519,6 +584,14 @@ test.describe('reference capture contract', () => {
     expect(evidence.fonts.status).toBe('loaded');
     expect(evidence.fonts.faces.length).toBeGreaterThanOrEqual(1);
     expect(evidence.imageCount).toBe(1);
+    expect(evidence.scrollPositions).toHaveLength(4);
+    expect(evidence.scrollPositions[0]).toBeLessThanOrEqual(1);
+    expect(evidence.scrollPositions[1]).toBeGreaterThan(400);
+    expect(evidence.scrollPositions[2]).toBeGreaterThan(evidence.scrollPositions[1] + 400);
+    expect(evidence.scrollPositions[3]).toBeGreaterThanOrEqual(evidence.scrollPositions[2]);
+    expect(evidence.scrollPositions[3]).toBeCloseTo(await page.evaluate(() => (
+      document.documentElement.scrollHeight - window.innerHeight
+    )), 0);
     expect(evidence.layoutSamples).toBeGreaterThanOrEqual(4);
     expect(evidence.finalScrollY).toBeLessThanOrEqual(1);
     expect(await page.locator('[data-section][data-activated="yes"]').count()).toBe(3);
@@ -602,23 +675,175 @@ test.describe('reference capture contract', () => {
     expect(() => guard.assertClean()).toThrow('blocked-http-method:POST');
   });
 
-  test('publishes with no-overwrite links and rolls back a partial collision', async () => {
+  test('validates the exact complete staged set and its manifest hashes', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'goetz-capture-contract-'));
-    const staging = path.join(root, 'staging');
-    const output = path.join(root, 'output');
-    await mkdir(staging);
-    await mkdir(output);
-    await writeFile(path.join(staging, 'one'), 'new-one', { flag: 'wx' });
-    await writeFile(path.join(staging, 'two'), 'new-two', { flag: 'wx' });
-    await writeFile(path.join(output, 'two'), 'existing-two', { flag: 'wx' });
+    const incomplete = path.join(root, '.legacy-staging-incomplete');
+    const tampered = path.join(root, '.legacy-staging-tampered');
+    const validate = validateStagedFixtureSet as unknown as (directory: string) => Promise<void>;
 
     try {
-      await expect(publishWithoutOverwrite(staging, output, ['one', 'two'])).rejects.toThrow();
-      expect(await targetExists(path.join(output, 'one'))).toBeFalsy();
-      expect(await readFile(path.join(output, 'two'), 'utf8')).toBe('existing-two');
+      await mkdir(incomplete);
+      await writeFile(path.join(incomplete, 'home-1440x900.png'), 'partial', { flag: 'wx' });
+      await expect(validate(incomplete)).rejects.toThrow('exact five-file fixture set');
+
+      await writeSyntheticFixtureStage(tampered);
+      const tamperedPath = path.join(tampered, 'home-390x844.png');
+      const tamperedBytes = Buffer.from(await readFile(tamperedPath));
+      tamperedBytes[0] ^= 0xff;
+      await writeFile(tamperedPath, tamperedBytes);
+      await expect(validate(tampered)).rejects.toThrow('hash mismatch');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  test('recovers only a validated complete interrupted transaction', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'goetz-capture-contract-'));
+    const staging = path.join(root, '.legacy-staging-interrupted');
+    const finalDir = path.join(root, 'legacy');
+    const recover = recoverCaptureTransaction as unknown as (
+      parentDirectory: string,
+      finalDirectory: string,
+      approvedTarget: URL,
+    ) => Promise<string>;
+
+    try {
+      await writeSyntheticFixtureStage(staging, 'recovered');
+      await expect(recover(
+        root,
+        finalDir,
+        new URL('https://reference.invalid/'),
+      )).resolves.toBe('recovered');
+      expect(await targetExists(staging)).toBeFalsy();
+      expect((await readdir(finalDir)).sort()).toEqual([...FIXTURE_NAMES].sort());
+      await expect(validateStagedFixtureSet(finalDir)).resolves.toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('does not recover a complete stage captured for a different approved target', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'goetz-capture-contract-'));
+    const staging = path.join(root, '.legacy-staging-other-reference');
+    const finalDir = path.join(root, 'legacy');
+    const recover = recoverCaptureTransaction as unknown as (
+      parentDirectory: string,
+      finalDirectory: string,
+      approvedTarget: URL,
+    ) => Promise<string>;
+
+    try {
+      await writeSyntheticFixtureStage(staging, 'other-reference');
+      await expect(recover(
+        root,
+        finalDir,
+        new URL('https://current-reference.invalid/'),
+      )).resolves.toBe('none');
+      expect(await targetExists(staging)).toBeFalsy();
+      expect(await targetExists(finalDir)).toBeFalsy();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('cleans an interrupted partial stage and retries with atomic complete-set visibility', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'goetz-capture-contract-'));
+    const partial = path.join(root, '.legacy-staging-partial');
+    const retry = path.join(root, '.legacy-staging-retry');
+    const finalDir = path.join(root, 'legacy');
+    const recover = recoverCaptureTransaction as unknown as (
+      parentDirectory: string,
+      finalDirectory: string,
+      approvedTarget: URL,
+    ) => Promise<string>;
+    const publish = publishCaptureTransaction as unknown as (
+      stagingDirectory: string,
+      finalDirectory: string,
+      approvedTarget: URL,
+    ) => Promise<void>;
+
+    try {
+      await mkdir(partial);
+      await writeFile(path.join(partial, 'home-1440x900.png'), 'interrupted', { flag: 'wx' });
+      const approvedTarget = new URL('https://reference.invalid/');
+      await expect(recover(root, finalDir, approvedTarget)).resolves.toBe('none');
+      expect(await targetExists(partial)).toBeFalsy();
+      expect(await targetExists(finalDir)).toBeFalsy();
+
+      await writeSyntheticFixtureStage(retry, 'retry');
+      const observations: string[][] = [];
+      let sampling = true;
+      const observer = (async () => {
+        while (sampling) {
+          if (await targetExists(finalDir)) {
+            observations.push((await readdir(finalDir)).sort());
+          }
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+      })();
+      await publish(retry, finalDir, approvedTarget);
+      observations.push((await readdir(finalDir)).sort());
+      sampling = false;
+      await observer;
+
+      expect(await targetExists(retry)).toBeFalsy();
+      expect(observations.length).toBeGreaterThan(0);
+      expect(observations.every((names) => (
+        JSON.stringify(names) === JSON.stringify([...FIXTURE_NAMES].sort())
+      ))).toBeTruthy();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses an existing final set without changing either transaction directory', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'goetz-capture-contract-'));
+    const staging = path.join(root, '.legacy-staging-new');
+    const finalDir = path.join(root, 'legacy');
+    const publish = publishCaptureTransaction as unknown as (
+      stagingDirectory: string,
+      finalDirectory: string,
+      approvedTarget: URL,
+    ) => Promise<void>;
+
+    try {
+      await writeSyntheticFixtureStage(finalDir, 'existing');
+      await writeSyntheticFixtureStage(staging, 'new');
+      const before = await Promise.all(FIXTURE_NAMES.map((name) => sha256(path.join(finalDir, name))));
+      await expect(publish(
+        staging,
+        finalDir,
+        new URL('https://reference.invalid/'),
+      )).rejects.toThrow('Immutable capture target already exists');
+      const after = await Promise.all(FIXTURE_NAMES.map((name) => sha256(path.join(finalDir, name))));
+      expect(after).toEqual(before);
+      expect(await targetExists(staging)).toBeTruthy();
+      expect((await readdir(staging)).sort()).toEqual([...FIXTURE_NAMES].sort());
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects a delayed navigation that completes during screenshot capture', async () => {
+    const target = new URL('https://approved.invalid/');
+    let currentURL = target.href;
+    const delayedNavigationPage = {
+      url: () => currentURL,
+      screenshot: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        currentURL = 'https://late-navigation.invalid/';
+        return Buffer.from('synthetic screenshot');
+      },
+    };
+    const capture = captureApprovedScreenshot as unknown as (
+      page: typeof delayedNavigationPage,
+      approvedTarget: URL,
+      screenshotPath: string,
+    ) => Promise<Buffer>;
+
+    await expect(capture(delayedNavigationPage, target, '/tmp/not-written.png')).rejects.toThrow(
+      'Reference homepage final origin or URL did not match the approved target.',
+    );
   });
 
   test('does not alter the fixed fixture directory in contract mode', async () => {
@@ -628,6 +853,37 @@ test.describe('reference capture contract', () => {
     const before = await readdir(FIXED_CAPTURE_OUTPUT_DIR);
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(await readdir(FIXED_CAPTURE_OUTPUT_DIR)).toEqual(before);
+  });
+
+  test('enforces the contract fixture parent as filesystem read-only', async () => {
+    if (process.env.GOETZ_CAPTURE_OUTPUT_DIR !== FIXED_CAPTURE_OUTPUT_DIR) {
+      return;
+    }
+    const probePath = path.join(path.dirname(FIXED_CAPTURE_OUTPUT_DIR), `.contract-write-probe-${process.pid}`);
+    let errorCode = '';
+    try {
+      await writeFile(probePath, 'must not be written', { flag: 'wx' });
+    } catch (error) {
+      errorCode = (error as NodeJS.ErrnoException).code || '';
+    } finally {
+      await rm(probePath, { force: true }).catch(() => undefined);
+    }
+    expect(['EROFS', 'EACCES']).toContain(errorCode);
+    expect(await targetExists(probePath)).toBeFalsy();
+  });
+
+  test('accepts the immutable pre-fix fixture schema without rewriting its evidence', async () => {
+    if (process.env.GOETZ_CAPTURE_OUTPUT_DIR !== FIXED_CAPTURE_OUTPUT_DIR) {
+      return;
+    }
+    const before = await Promise.all(FIXTURE_NAMES.map((name) => (
+      sha256(path.join(FIXED_CAPTURE_OUTPUT_DIR, name))
+    )));
+    await expect(validateStagedFixtureSet(FIXED_CAPTURE_OUTPUT_DIR)).resolves.toBeUndefined();
+    const after = await Promise.all(FIXTURE_NAMES.map((name) => (
+      sha256(path.join(FIXED_CAPTURE_OUTPUT_DIR, name))
+    )));
+    expect(after).toEqual(before);
   });
 });
 
@@ -646,9 +902,13 @@ test('writes the immutable legacy homepage capture set', async ({ browser }) => 
     process.env.GOETZ_REFERENCE_OVERRIDE_APPROVED,
   );
 
-  await assertTargetsAbsent(outputDir, FIXTURE_NAMES);
-  const stagingDir = path.join(outputDir, `.capture-staging-${process.pid}-${randomUUID()}`);
-  await mkdir(stagingDir, { mode: 0o700 });
+  const fixturesParent = path.dirname(outputDir);
+  const recovery = await recoverCaptureTransaction(fixturesParent, outputDir, target);
+  if (recovery === 'recovered') {
+    await validateStagedFixtureSet(outputDir, target);
+    return;
+  }
+  const stagingDir = await mkdtemp(path.join(fixturesParent, LEGACY_STAGING_PREFIX));
 
   const viewports: Record<string, unknown> = {};
   const components: Record<string, Record<string, ElementGeometry[]>> = {};
@@ -710,14 +970,7 @@ test('writes the immutable legacy homepage capture set', async ({ browser }) => 
 
         const fileName = `home-${viewport.key}.png`;
         const screenshotPath = path.join(stagingDir, fileName);
-        await page.screenshot({
-          path: screenshotPath,
-          fullPage: true,
-          animations: 'disabled',
-          caret: 'hide',
-          scale: 'css',
-        });
-        const imageBuffer = await readFile(screenshotPath);
+        const imageBuffer = await captureApprovedScreenshot(page, target, screenshotPath);
         const png = PNG.sync.read(imageBuffer);
         if (png.width !== viewport.width || png.height < viewport.height) {
           throw new Error(`Captured PNG dimensions are invalid for ${viewport.key}.`);
@@ -731,6 +984,17 @@ test('writes the immutable legacy homepage capture set', async ({ browser }) => 
           pixel_width: png.width,
           pixel_height: png.height,
         };
+        const maximumScrollY = Math.max(0, documentGeometry.scroll_height - viewport.height);
+        if (
+          settlement.scrollPositions.length !== SECTION_SELECTORS.length + 1
+          || settlement.scrollPositions.some((position, index, positions) => (
+            position < 0 || (index > 0 && position < positions[index - 1])
+          ))
+          || Math.abs(settlement.scrollPositions.at(-1)! - maximumScrollY) > 1
+        ) {
+          throw new Error(`Reference section traversal was not meaningful for ${viewport.key}.`);
+        }
+        assertFinalReferenceLocation(page, target);
         viewports[viewport.key] = {
           viewport: { width: viewport.width, height: viewport.height, device_scale_factor: 1 },
           http_status: status,
@@ -781,7 +1045,7 @@ test('writes the immutable legacy homepage capture set', async ({ browser }) => 
       { flag: 'wx', mode: 0o644 },
     );
 
-    await publishWithoutOverwrite(stagingDir, outputDir, FIXTURE_NAMES);
+    await publishCaptureTransaction(stagingDir, outputDir, target);
   } finally {
     await rm(stagingDir, { recursive: true, force: true });
   }
