@@ -18,6 +18,8 @@ define('GOETZ_LEGAL_EMAIL', 'info@goetzlegal.com');
 define('GOETZ_LEGAL_ADDRESS_LINE_1', '33 Barkley Cir Ste 100');
 define('GOETZ_LEGAL_ADDRESS_LINE_2', 'Fort Myers, FL 33907');
 
+require_once __DIR__ . '/inc/site-settings.php';
+
 /**
  * Return an imported media URL by basename, falling back to the live asset URL.
  */
@@ -277,22 +279,33 @@ function goetz_legal_schema_fallback(): void
     $schema = [
         '@context' => 'https://schema.org',
         '@type'    => 'LegalService',
-        'name'     => 'Goetz & Goetz',
+        'name'     => goetz_legal_setting('business_name', 'Goetz & Goetz'),
+        'alternateName' => goetz_legal_setting('alternate_name', 'Goetz and Goetz'),
         'url'      => home_url('/'),
-        'telephone'=> GOETZ_LEGAL_PHONE_DISPLAY,
-        'email'    => GOETZ_LEGAL_EMAIL,
+        'telephone'=> goetz_legal_setting('phone_e164', goetz_legal_setting('phone_display', '(239) 936-2841')),
+        'email'    => goetz_legal_setting('email', 'info@goetzlegal.com'),
         'address'  => [
             '@type'           => 'PostalAddress',
-            'streetAddress'   => GOETZ_LEGAL_ADDRESS_LINE_1,
-            'addressLocality' => 'Fort Myers',
-            'addressRegion'   => 'FL',
-            'postalCode'      => '33907',
-            'addressCountry'  => 'US',
+            'streetAddress'   => goetz_legal_setting('street_address', '33 Barkley Cir Ste 100'),
+            'addressLocality' => goetz_legal_setting('locality', 'Fort Myers'),
+            'addressRegion'   => goetz_legal_setting('region', 'FL'),
+            'postalCode'      => goetz_legal_setting('postal_code', '33907'),
+            'addressCountry'  => goetz_legal_setting('country_code', 'US'),
         ],
-        'areaServed' => 'Fort Myers, Florida',
+        'areaServed' => goetz_legal_setting('location_label', 'Fort Myers, Florida'),
     ];
 
-    echo '<script type="application/ld+json">' . wp_json_encode($schema) . '</script>' . "\n";
+    $social_image_id = (int) goetz_legal_setting('social_image_id', 0);
+    if ($social_image_id > 0) {
+        $social_image_url = wp_get_attachment_image_url($social_image_id, 'full');
+        if ($social_image_url) {
+            $schema['image'] = $social_image_url;
+        }
+    }
+
+    echo '<script type="application/ld+json">'
+        . wp_json_encode($schema, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES)
+        . '</script>' . "\n";
 }
 add_action('wp_head', 'goetz_legal_schema_fallback', 20);
 

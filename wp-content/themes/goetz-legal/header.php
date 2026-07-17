@@ -4,6 +4,10 @@
  *
  * @package GoetzLegal
  */
+$business_name = (string) goetz_legal_setting('business_name', 'Goetz & Goetz');
+$phone_display = (string) goetz_legal_setting('phone_display', GOETZ_LEGAL_PHONE_DISPLAY);
+$phone_e164 = (string) goetz_legal_setting('phone_e164', GOETZ_LEGAL_PHONE_TEL);
+$email = (string) goetz_legal_setting('email', GOETZ_LEGAL_EMAIL);
 ?>
 <!DOCTYPE html>
 <html <?php language_attributes(); ?>>
@@ -23,17 +27,17 @@
         <div class="site-header__top">
             <div class="site-header__inner">
                 <div class="site-contact-links" aria-label="<?php esc_attr_e('Contact information', 'goetz-legal'); ?>">
-                    <a href="tel:<?php echo esc_attr(GOETZ_LEGAL_PHONE_TEL); ?>">
+                    <a href="<?php echo esc_url('tel:' . $phone_e164); ?>">
                         <span class="site-contact-links__icon" aria-hidden="true">
                             <svg viewBox="0 0 24 24" focusable="false"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1C10.61 21 3 13.39 3 4c0-.55.45-1 1-1h3.49c.55 0 1 .45 1 1 0 1.24.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.19 2.2Z"/></svg>
                         </span>
-                        <?php echo esc_html(GOETZ_LEGAL_PHONE_DISPLAY); ?>
+                        <?php echo esc_html($phone_display); ?>
                     </a>
-                    <a href="mailto:<?php echo esc_attr(GOETZ_LEGAL_EMAIL); ?>">
+                    <a href="<?php echo esc_url('mailto:' . $email); ?>">
                         <span class="site-contact-links__icon" aria-hidden="true">
                             <svg viewBox="0 0 24 24" focusable="false"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2Zm0 4-8 5-8-5V6l8 5 8-5v2Z"/></svg>
                         </span>
-                        <?php echo esc_html(GOETZ_LEGAL_EMAIL); ?>
+                        <?php echo esc_html($email); ?>
                     </a>
                 </div>
             </div>
@@ -46,7 +50,11 @@
                         <?php the_custom_logo(); ?>
                     <?php else: ?>
                         <a href="<?php echo esc_url(home_url('/')); ?>" class="site-branding-card__text">
-                            <span>Goetz <b>&amp;</b> Goetz</span>
+                            <?php if ($business_name === 'Goetz & Goetz'): ?>
+                                <span>Goetz <b>&amp;</b> Goetz</span>
+                            <?php else: ?>
+                                <span><?php echo esc_html($business_name); ?></span>
+                            <?php endif; ?>
                         </a>
                     <?php endif; ?>
                 </div>

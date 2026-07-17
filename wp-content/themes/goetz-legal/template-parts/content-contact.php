@@ -9,6 +9,10 @@ $page_hero_url = function_exists('goetz_legal_asset_url')
     ? goetz_legal_asset_url('bann-img.jpg', 'https://goetzlegal.com/wp-content/uploads/2022/08/bann-img.jpg')
     : 'https://goetzlegal.com/wp-content/uploads/2022/08/bann-img.jpg';
 $page_hero_style = 'background-image: linear-gradient(rgb(0 0 0 / 50%), rgb(0 0 0 / 50%)), url(' . esc_url($page_hero_url) . ');';
+$phone_display = (string) goetz_legal_setting('phone_display', GOETZ_LEGAL_PHONE_DISPLAY);
+$phone_e164 = (string) goetz_legal_setting('phone_e164', GOETZ_LEGAL_PHONE_TEL);
+$formatted_address = goetz_legal_formatted_address();
+$map_url = goetz_legal_map_url();
 
 $page_content = get_the_content();
 $form_shortcode = '';
@@ -66,7 +70,7 @@ if (!$form_shortcode && post_type_exists('wpforms')) {
                         </span>
                         <article>
                             <h3><?php esc_html_e('Address:', 'goetz-legal'); ?></h3>
-                            <p><?php esc_html_e('33 Barkley Cir Ste 100. Fort Myers, Florida 33907', 'goetz-legal'); ?></p>
+                            <p><?php echo esc_html($formatted_address); ?></p>
                         </article>
                     </li>
                     <li>
@@ -75,13 +79,13 @@ if (!$form_shortcode && post_type_exists('wpforms')) {
                         </span>
                         <article>
                             <h3><?php esc_html_e('Phone:', 'goetz-legal'); ?></h3>
-                            <p><a href="tel:<?php echo esc_attr(GOETZ_LEGAL_PHONE_TEL); ?>"><?php echo esc_html(GOETZ_LEGAL_PHONE_DISPLAY); ?></a></p>
+                            <p><a href="<?php echo esc_url('tel:' . $phone_e164); ?>"><?php echo esc_html($phone_display); ?></a></p>
                         </article>
                     </li>
                 </ul>
 
                 <h2 class="goetz-contact-page__location-heading"><?php esc_html_e('Location', 'goetz-legal'); ?></h2>
-                <p class="goetz-contact-page__directions"><a href="https://www.google.com/maps/place/33+Barkley+Cir,+Fort+Myers,+FL+33907/@26.587307,-81.882481,17z/data=!3m1!4b1!4m2!3m1!1s0x88db40160abaa0c1:0x3cc0990283c267a1!6m1!1e1"><?php esc_html_e('Driving Directions', 'goetz-legal'); ?></a></p>
+                <p class="goetz-contact-page__directions"><a href="<?php echo esc_url($map_url); ?>"><?php esc_html_e('Driving Directions', 'goetz-legal'); ?></a></p>
             </div>
         </div>
 

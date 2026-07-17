@@ -51,7 +51,7 @@ final class PluginBootTest extends TestCase
         Plugin::boot();
         Plugin::boot();
 
-        self::assertSame(1, $actionRegistrations);
+        self::assertSame(4, $actionRegistrations);
         self::assertSame(1, $filterRegistrations);
         self::assertSame(1, $loadedActions);
     }

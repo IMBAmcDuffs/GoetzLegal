@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Goetz\Site;
+namespace Goetz\Site {
 
 const STABLE_BLOCK_NAMES = [
     'goetz/attorney-card',
@@ -73,4 +73,12 @@ function editor_assets_ready(): bool
     return is_readable(GOETZ_SITE_PATH . 'build/index.js')
         && is_readable(GOETZ_SITE_PATH . 'build/index.asset.php')
         && wp_script_is(Blocks::EDITOR_HANDLE, 'registered');
+}
+}
+
+namespace {
+    function goetz_site_get_setting(string $key, mixed $fallback = null): mixed
+    {
+        return \Goetz\Site\Settings\Site_Settings::get($key, $fallback);
+    }
 }

@@ -443,10 +443,28 @@ readonly PLAYWRIGHT_AUTH_ARTIFACTS="${ROOT_DIR}/artifacts/playwright/auth"
 readonly PLAYWRIGHT_PUBLIC_ARTIFACTS="${ROOT_DIR}/artifacts/playwright/public"
 readonly PLAYWRIGHT_CAPTURE_ARTIFACTS="${ROOT_DIR}/artifacts/playwright/capture"
 readonly PLAYWRIGHT_REFERENCE_FIXTURES_PARENT="${ROOT_DIR}/tests/visual/fixtures"
+readonly PLAYWRIGHT_SETTINGS_SNAPSHOT_SCRIPT='/app/tests/e2e/helpers/site-settings-option.php'
 
 cleanup_playwright_auth_state() {
   rm -f -- "$PLAYWRIGHT_AUTH_STATE" "${PLAYWRIGHT_AUTH_STATE}.tmp."*
   rm -f -- "$PLAYWRIGHT_LEGACY_AUTH_STATE" "${PLAYWRIGHT_LEGACY_AUTH_STATE}.tmp."*
+}
+
+snapshot_local_site_settings() {
+  local snapshot_file="$1"
+  compose exec -T wpcli wp --path="${WP_PATH}" --allow-root \
+    eval-file "$PLAYWRIGHT_SETTINGS_SNAPSHOT_SCRIPT" snapshot > "$snapshot_file"
+  chmod 0600 "$snapshot_file"
+  [[ -s "$snapshot_file" ]] || {
+    echo 'The local Site Settings snapshot is empty.' >&2
+    return 1
+  }
+}
+
+restore_local_site_settings() {
+  local snapshot_file="$1"
+  compose exec -T wpcli wp --path="${WP_PATH}" --allow-root \
+    eval-file "$PLAYWRIGHT_SETTINGS_SNAPSHOT_SCRIPT" restore < "$snapshot_file" >/dev/null
 }
 
 prepare_playwright_paths() {
@@ -567,8 +585,32 @@ run_playwright() {
   prepare_playwright_paths
   if [[ "$authenticated" == 'yes' ]]; then
     (
-      trap cleanup_playwright_auth_state EXIT HUP INT TERM
+      local settings_snapshot=''
+      local restore_settings='no'
+      restore_playwright_state() {
+        local run_status=$?
+        local restore_status=0
+        trap - EXIT HUP INT TERM
+        set +e
+        if [[ "$restore_settings" == 'yes' ]]; then
+          restore_local_site_settings "$settings_snapshot" || restore_status=$?
+        fi
+        if [[ -n "$settings_snapshot" ]]; then
+          rm -f -- "$settings_snapshot"
+        fi
+        cleanup_playwright_auth_state
+        if (( run_status == 0 && restore_status != 0 )); then
+          run_status=$restore_status
+        fi
+        exit "$run_status"
+      }
+      trap restore_playwright_state EXIT HUP INT TERM
       cleanup_playwright_auth_state
+      if [[ "$local_test" == 'yes' ]]; then
+        settings_snapshot="$(mktemp "${PLAYWRIGHT_STATE_DIR}/site-settings-option.XXXXXX")"
+        snapshot_local_site_settings "$settings_snapshot"
+        restore_settings='yes'
+      fi
       compose run --rm -w /work/e2e "$playwright_service" npm ci
       invoke_playwright_child \
         "$script" "$authenticated" "$playwright_service" "$base_url" "$username" "$password" "$@"

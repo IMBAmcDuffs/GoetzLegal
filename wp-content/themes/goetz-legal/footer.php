@@ -4,6 +4,20 @@
  *
  * @package GoetzLegal
  */
+$business_name = (string) goetz_legal_setting('business_name', 'Goetz & Goetz');
+$phone_display = (string) goetz_legal_setting('phone_display', GOETZ_LEGAL_PHONE_DISPLAY);
+$phone_e164 = (string) goetz_legal_setting('phone_e164', GOETZ_LEGAL_PHONE_TEL);
+$email = (string) goetz_legal_setting('email', GOETZ_LEGAL_EMAIL);
+$location_label = (string) goetz_legal_setting('location_label', 'Fort Myers, Florida');
+$footer_disclaimer = (string) goetz_legal_setting('footer_disclaimer', '');
+$footer_legal_copy = (string) goetz_legal_setting('footer_legal_copy', '');
+$copyright_start_year = (int) goetz_legal_setting('copyright_start_year', 2024);
+$copyright_text = (string) goetz_legal_setting('copyright_text', 'Goetz & Goetz. All Rights Reserved');
+$copyright_dynamic_year = (bool) goetz_legal_setting('copyright_dynamic_year', true);
+$current_year = (int) wp_date('Y');
+$copyright_years = $copyright_dynamic_year && $current_year > $copyright_start_year
+    ? $copyright_start_year . ' – ' . $current_year
+    : (string) $copyright_start_year;
 ?>
         </main>
 
@@ -21,10 +35,10 @@
                         ? goetz_legal_asset_url('Goetz-footer-logo.png', 'https://goetzlegal.com/wp-content/uploads/2022/08/Goetz-footer-logo.png')
                         : 'https://goetzlegal.com/wp-content/uploads/2022/08/Goetz-footer-logo.png';
                     ?>
-                    <img class="site-footer__logo" src="<?php echo esc_url($footer_logo_url); ?>" alt="<?php esc_attr_e('Goetz & Goetz', 'goetz-legal'); ?>" width="274" height="86" loading="lazy">
-                    <p>
-                        <?php esc_html_e('The content of this Website is intended to provide general information about Goetz & Goetz. The information provided is not an offer to represent you or create an attorney-client relationship. The content of any E-mail communication, facsimile or correspondence sent to Goetz & Goetz or to any of its attorneys will not, in and of itself, create an attorney-client relationship.', 'goetz-legal'); ?>
-                    </p>
+                    <img class="site-footer__logo" src="<?php echo esc_url($footer_logo_url); ?>" alt="<?php echo esc_attr($business_name); ?>" width="274" height="86" loading="lazy">
+                    <div class="site-footer__disclaimer">
+                        <?php echo wp_kses_post(wpautop($footer_disclaimer)); ?>
+                    </div>
                 </section>
 
                 <section class="site-footer__nav">
@@ -53,21 +67,21 @@
 
                 <section>
                     <h3><?php esc_html_e('Contact Us', 'goetz-legal'); ?></h3>
-                    <p><?php esc_html_e('Fort Myers, Florida', 'goetz-legal'); ?></p>
-                    <p><strong><?php esc_html_e('Phone', 'goetz-legal'); ?></strong> &ndash; <a href="tel:<?php echo esc_attr(GOETZ_LEGAL_PHONE_TEL); ?>"><?php echo esc_html(GOETZ_LEGAL_PHONE_DISPLAY); ?></a></p>
+                    <p><?php echo esc_html($location_label); ?></p>
+                    <p><strong><?php esc_html_e('Phone', 'goetz-legal'); ?></strong> &ndash; <a href="<?php echo esc_url('tel:' . $phone_e164); ?>"><?php echo esc_html($phone_display); ?></a></p>
                     <p><strong><?php esc_html_e('E-Mail Address', 'goetz-legal'); ?></strong></p>
                     <p>
-                        <a href="mailto:<?php echo esc_attr(GOETZ_LEGAL_EMAIL); ?>"><?php esc_html_e('James L. Goetz', 'goetz-legal'); ?></a>
+                        <a href="<?php echo esc_url('mailto:' . $email); ?>"><?php esc_html_e('James L. Goetz', 'goetz-legal'); ?></a>
                         |
-                        <a href="mailto:<?php echo esc_attr(GOETZ_LEGAL_EMAIL); ?>"><?php esc_html_e('Gregory W. Goetz', 'goetz-legal'); ?></a>
+                        <a href="<?php echo esc_url('mailto:' . $email); ?>"><?php esc_html_e('Gregory W. Goetz', 'goetz-legal'); ?></a>
                     </p>
-                    <p><?php esc_html_e('The hiring of a lawyer is an important decision that should not be based solely upon advertisements. Before you decide, ask us to send you free written information about our qualifications and experience.', 'goetz-legal'); ?></p>
+                    <div class="site-footer__legal-copy"><?php echo wp_kses_post(wpautop($footer_legal_copy)); ?></div>
                 </section>
             </div>
 
             <div class="site-footer__bottom">
                 <div>
-                    &copy; 2024 &ndash; <?php bloginfo('name'); ?>. <?php esc_html_e('All Rights Reserved', 'goetz-legal'); ?>
+                    &copy; <?php echo esc_html($copyright_years); ?> &ndash; <?php echo esc_html($copyright_text); ?>
                 </div>
             </div>
         </div>

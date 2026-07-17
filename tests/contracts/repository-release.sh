@@ -386,6 +386,19 @@ set -euo pipefail
 record="${0%/*}/docker-record"
 count_file="${0%/*}/docker-count"
 fixture_root="$(cd "${0%/*}/.." && pwd)"
+
+# Local authenticated browser runs now wrap Site Settings mutations in an
+# exact WP-CLI snapshot/restore. Keep those helper calls out of the synthetic
+# Docker invocation numbering used by the browser-routing assertions below.
+if [[ " $* " == *"/site-settings-option.php snapshot "* ]]; then
+  printf 'synthetic-site-settings-snapshot\n'
+  exit 0
+fi
+if [[ " $* " == *"/site-settings-option.php restore "* ]]; then
+  cat >/dev/null
+  exit 0
+fi
+
 count=0
 if [[ -s "$count_file" ]]; then
   read -r count < "$count_file"
