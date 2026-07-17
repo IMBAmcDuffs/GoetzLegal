@@ -65,6 +65,6 @@ $card = render_block([
 
 goetz_attorney_profile_assert(! str_contains($card, 'goetz-attorney-card--profile'), 'Default card unexpectedly uses profile layout.');
 goetz_attorney_profile_assert(! str_contains($card, 'goetz-attorney-card__mark'), 'Default card unexpectedly renders the profile mark.');
-goetz_attorney_profile_assert(str_contains($card, '<h2>Homepage Attorney</h2>'), 'Default card name markup changed.');
+goetz_attorney_profile_assert(str_contains($card, '<h2>Homepage Attorney</h2>'), 'Standalone default card H2 markup changed.');
 
 fwrite(STDOUT, "Attorney profile integration checks passed.\n");

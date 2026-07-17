@@ -21,7 +21,7 @@ jest.mock('@wordpress/i18n', () => ({ __: (value) => value }));
 
 import { MediaControl } from '../../src/components/media-control';
 import { HeroEdit, save } from '../../src/blocks/hero/edit';
-import { findByLabel } from './helpers';
+import { findAll, findByLabel } from './helpers';
 
 describe('Hero editor', () => {
   const attributes = {
@@ -91,6 +91,32 @@ describe('Hero editor', () => {
       imageUrl: '',
       imageAlt: '',
     });
+  });
+
+  test('previews the selected circular image after the text in source order', () => {
+    const tree = HeroEdit({ attributes, setAttributes: jest.fn() });
+    const [section] = findAll(
+      tree,
+      (node) => node.type === 'section' && node.props?.className?.includes('goetz-editor-preview--hero')
+    );
+    const images = findAll(
+      tree,
+      (node) => node.type === 'img' && node.props?.className === 'goetz-hero__image'
+    );
+
+    expect(section.props.children.map((child) => child.type)).toEqual(['div', 'figure']);
+    expect(images).toEqual([
+      expect.objectContaining({
+        props: expect.objectContaining({
+          src: attributes.imageUrl,
+          alt: attributes.imageAlt,
+        }),
+      }),
+    ]);
+    expect(findByLabel(tree, 'Hero heading').props.allowedFormats).toEqual([
+      'core/bold',
+      'core/italic',
+    ]);
   });
 
   test('is dynamic', () => {

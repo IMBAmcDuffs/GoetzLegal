@@ -49,6 +49,9 @@ const expectedAttributes = {
     imageId: { type: 'number', default: 0 },
     profileNewTab: { type: 'boolean', default: false },
   },
+  'goetz/attorney-grid': {
+    heading: { type: 'string', default: 'Attorneys' },
+  },
   'goetz/cta': {
     eyebrow: { type: 'string', default: 'WE ARE AN EXPERIENCED TEAM' },
     heading: { type: 'string', default: 'NEED A LAWYER?' },
@@ -156,6 +159,18 @@ describe('stable Goetz blocks', () => {
       'goetz/scaleImageUrl',
       'goetz/scaleImageAlt',
     ]);
+
+    const attorneyGrid = stableBlocks.find(
+      ({ name }) => name === 'goetz/attorney-grid'
+    );
+    const attorneyCard = stableBlocks.find(
+      ({ name }) => name === 'goetz/attorney-card'
+    );
+    expect(attorneyGrid.providesContext).toEqual({
+      'goetz/attorneyGridHeading': 'heading',
+    });
+    expect(attorneyCard.usesContext).toEqual(['goetz/attorneyGridHeading']);
+    expect(attorneyCard).not.toHaveProperty('parent');
   });
 
   test('registers native editors and preserves only the parent InnerBlocks content', () => {
@@ -166,7 +181,7 @@ describe('stable Goetz blocks', () => {
     expect(registrations.map(({ name }) => name)).toEqual(Object.keys(expectedAttributes));
     registrations.forEach(({ name, settings }) => {
       expect(settings.edit).toBeInstanceOf(Function);
-      if (name === 'goetz/practice-areas') {
+      if (name === 'goetz/practice-areas' || name === 'goetz/attorney-grid') {
         expect(settings.save()).toEqual(expect.objectContaining({
           type: 'InnerBlocks.Content',
         }));
@@ -174,6 +189,6 @@ describe('stable Goetz blocks', () => {
         expect(settings.save()).toBeNull();
       }
     });
-    expect(new Set(registrations.map(({ settings }) => settings.edit)).size).toBe(8);
+    expect(new Set(registrations.map(({ settings }) => settings.edit)).size).toBe(9);
   });
 });

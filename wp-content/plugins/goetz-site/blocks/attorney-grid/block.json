@@ -1,0 +1,20 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "goetz/attorney-grid",
+  "title": "Goetz Attorney Grid",
+  "category": "theme",
+  "icon": "groups",
+  "description": "Editable homepage attorney grid.",
+  "textdomain": "goetz-site",
+  "attributes": {
+    "heading": { "type": "string", "default": "Attorneys" }
+  },
+  "providesContext": {
+    "goetz/attorneyGridHeading": "heading"
+  },
+  "supports": { "html": false },
+  "editorScript": "goetz-site-block-editor",
+  "style": "file:./style.css",
+  "render": "file:./render.php"
+}

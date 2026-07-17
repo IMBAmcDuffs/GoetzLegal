@@ -52,6 +52,7 @@ describe('Attorney Card editor', () => {
     );
 
     expect(preview.props.className).toContain('goetz-editor-preview--attorney-profile');
+    expect(preview.props.className).toContain('goetz-attorney-card');
     expect(findAll(tree, (node) => node.props?.className === 'goetz-attorney-card__image')).toHaveLength(1);
     expect(findAll(tree, (node) => node.props?.className === 'goetz-attorney-card__body')).toHaveLength(1);
     expect(findAll(tree, (node) => node.props?.className === 'goetz-attorney-card__mark')).toHaveLength(1);
@@ -59,7 +60,7 @@ describe('Attorney Card editor', () => {
     expect(findByLabel(tree, 'Attorney name').props.tagName).toBe('h2');
   });
 
-  test('keeps the default card preview structure unchanged', () => {
+  test('renders a useful standalone card preview while preserving its H2 hierarchy', () => {
     const tree = AttorneyCardEdit({
       attributes: {
         className: '',
@@ -76,9 +77,24 @@ describe('Attorney Card editor', () => {
     );
 
     expect(preview.props.className).not.toContain('goetz-editor-preview--attorney-profile');
-    expect(findAll(tree, (node) => node.props?.className === 'goetz-attorney-card__image')).toHaveLength(0);
-    expect(findAll(tree, (node) => node.props?.className === 'goetz-attorney-card__body')).toHaveLength(0);
+    expect(preview.props.className).toContain('goetz-attorney-card');
+    expect(findAll(tree, (node) => node.props?.className === 'goetz-attorney-card__image')).toHaveLength(1);
+    expect(findAll(tree, (node) => node.props?.className === 'goetz-attorney-card__body')).toHaveLength(1);
     expect(findAll(tree, (node) => node.props?.className === 'goetz-attorney-card__mark')).toHaveLength(0);
+    expect(findAll(tree, (node) => node.props?.className === 'goetz-attorney-card__links')).toHaveLength(0);
+    expect(findByLabel(tree, 'Attorney name').props.tagName).toBe('h2');
+  });
+
+  test('uses an H3 only when the Attorney Grid provides its parent context', () => {
+    const tree = AttorneyCardEdit({
+      attributes: {
+        className: 'is-style-profile',
+        name: 'Grid Attorney',
+      },
+      context: { 'goetz/attorneyGridHeading': 'Attorneys' },
+      setAttributes: jest.fn(),
+    });
+
     expect(findByLabel(tree, 'Attorney name').props.tagName).toBe('h3');
   });
 

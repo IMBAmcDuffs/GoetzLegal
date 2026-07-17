@@ -14,6 +14,29 @@
   width: 100%;
 }
 
+.editor-styles-wrapper .goetz-editor-preview--attorney-card .goetz-attorney-card__image,
+.editor-styles-wrapper .goetz-editor-preview--attorney-card .goetz-attorney-card__image-placeholder {
+  aspect-ratio: 16 / 10;
+  display: block;
+  object-fit: cover;
+  width: 100%;
+}
+
+.editor-styles-wrapper .goetz-editor-preview--attorney-card .goetz-attorney-card__image-placeholder {
+  align-items: center;
+  background: #f2f2f2;
+  border: 1px dashed #7951a9;
+  color: #7951a9;
+  display: flex;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.editor-styles-wrapper .goetz-editor-preview--attorney-card .goetz-attorney-card__body {
+  min-width: 0;
+}
+
 .editor-styles-wrapper .goetz-editor-preview--attorney-card.goetz-editor-preview--attorney-profile {
   align-items: start;
   background: transparent;

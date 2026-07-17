@@ -22,6 +22,7 @@
     { "name": "default", "label": "Card", "isDefault": true },
     { "name": "profile", "label": "Attorney Profile" }
   ],
+  "usesContext": ["goetz/attorneyGridHeading"],
   "supports": { "html": false },
   "editorScript": "goetz-site-block-editor",
   "style": "file:./style.css",

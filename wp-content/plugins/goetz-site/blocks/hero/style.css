@@ -3,12 +3,16 @@
   background: #2d2d2d;
   color: #fff;
   display: grid;
-  gap: 24px;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.8fr);
+  gap: 6%;
+  grid-template-columns: 47% 47%;
   padding: 32px;
 }
 
-.editor-styles-wrapper .goetz-editor-preview--hero .goetz-editor-media-control img {
+.editor-styles-wrapper .goetz-editor-preview--hero .goetz-hero__media {
+  margin: 0;
+}
+
+.editor-styles-wrapper .goetz-editor-preview--hero .goetz-hero__image {
   aspect-ratio: 1;
   border-radius: 999px;
   display: block;

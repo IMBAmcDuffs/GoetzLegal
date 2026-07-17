@@ -9,6 +9,11 @@ import { MediaControl } from '../../components/media-control';
 export function CtaEdit({ attributes = {}, setAttributes }) {
   const blockProps = useBlockProps({
     className: 'goetz-editor-preview goetz-editor-preview--cta',
+    style: attributes.backgroundImageUrl
+      ? {
+          '--goetz-cta-background-image': `url("${attributes.backgroundImageUrl}")`,
+        }
+      : undefined,
   });
 
   return (

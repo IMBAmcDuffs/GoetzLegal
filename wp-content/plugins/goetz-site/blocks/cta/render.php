@@ -33,11 +33,6 @@ if (trim($background_url) === '') {
         : 'https://goetzlegal.com/wp-content/uploads/2022/08/law-updates-bg.jpg';
 }
 
-$style = sprintf(
-    'background-image: linear-gradient(rgb(45 45 45 / 90%%), rgb(45 45 45 / 90%%)), url("%s");',
-    esc_url($background_url)
-);
-
 if (trim($button_text) === '') {
     $button_text = function_exists('goetz_site_get_setting')
         ? (string) goetz_site_get_setting('cta_label', 'Get Consultation')
@@ -53,7 +48,10 @@ if ($heading === 'NEED A LAWYER?') {
 }
 $heading = \Goetz\Site\heading_markup($heading);
 ?>
-<section <?php echo get_block_wrapper_attributes(['class' => 'goetz-cta', 'style' => $style]); ?>>
+<section <?php echo get_block_wrapper_attributes([
+    'class'                     => 'goetz-cta',
+    'data-goetz-cta-background' => esc_url($background_url),
+]); ?>>
     <div>
         <p><?php echo esc_html($eyebrow); ?></p>
         <h2><?php echo $heading; ?></h2>

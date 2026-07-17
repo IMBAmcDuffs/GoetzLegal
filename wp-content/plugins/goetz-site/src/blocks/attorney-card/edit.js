@@ -6,13 +6,17 @@ import { __ } from '@wordpress/i18n';
 import { LinkControl } from '../../components/link-control';
 import { MediaControl } from '../../components/media-control';
 
-export function AttorneyCardEdit({ attributes = {}, setAttributes }) {
+export function AttorneyCardEdit({ attributes = {}, context = {}, setAttributes }) {
   const isProfile = /(?:^|\s)is-style-profile(?:\s|$)/.test(
     typeof attributes.className === 'string' ? attributes.className : ''
   );
+  const isGridCard = Object.prototype.hasOwnProperty.call(
+    context,
+    'goetz/attorneyGridHeading'
+  );
   const blockProps = useBlockProps({
     className: [
-      'goetz-editor-preview goetz-editor-preview--attorney-card',
+      'goetz-editor-preview goetz-editor-preview--attorney-card goetz-attorney-card',
       isProfile
         ? 'goetz-editor-preview--attorney-profile goetz-attorney-card--profile'
         : '',
@@ -20,7 +24,7 @@ export function AttorneyCardEdit({ attributes = {}, setAttributes }) {
   });
   const nameField = (
     <RichText
-      tagName={isProfile ? 'h2' : 'h3'}
+      tagName={isGridCard ? 'h3' : 'h2'}
       className={
         isProfile
           ? 'goetz-attorney-card__heading'
@@ -124,9 +128,39 @@ export function AttorneyCardEdit({ attributes = {}, setAttributes }) {
         </article>
       ) : (
         <article {...blockProps}>
-          {nameField}
-          {roleField}
-          {biographyField}
+          {attributes.imageUrl ? (
+            <img
+              className="goetz-attorney-card__image"
+              src={attributes.imageUrl}
+              alt={attributes.imageAlt || attributes.name || ''}
+            />
+          ) : (
+            <div
+              className="goetz-attorney-card__image-placeholder"
+              aria-hidden="true"
+            >
+              {__('Select an attorney image', 'goetz-site')}
+            </div>
+          )}
+          <div className="goetz-attorney-card__body">
+            {nameField}
+            {roleField}
+            {biographyField}
+            {attributes.profileUrl || attributes.email ? (
+              <div className="goetz-attorney-card__links" aria-hidden="true">
+                {attributes.profileUrl ? (
+                  <span className="goetz-attorney-card__link-preview">
+                    {__('Read Full Bio', 'goetz-site')}
+                  </span>
+                ) : null}
+                {attributes.email ? (
+                  <span className="goetz-attorney-card__link-preview">
+                    {__('Email', 'goetz-site')}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </article>
       )}
     </Fragment>

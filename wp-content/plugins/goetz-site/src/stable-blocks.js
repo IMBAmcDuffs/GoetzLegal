@@ -1,4 +1,5 @@
 import attorneyCard from '../blocks/attorney-card/block.json';
+import attorneyGrid from '../blocks/attorney-grid/block.json';
 import cta from '../blocks/cta/block.json';
 import faqList from '../blocks/faq-list/block.json';
 import hero from '../blocks/hero/block.json';
@@ -7,6 +8,10 @@ import practiceAreas from '../blocks/practice-areas/block.json';
 import resourceLinks from '../blocks/resource-links/block.json';
 import welcome from '../blocks/welcome/block.json';
 import { AttorneyCardEdit } from './blocks/attorney-card/edit';
+import {
+  AttorneyGridEdit,
+  save as saveAttorneyGrid,
+} from './blocks/attorney-grid/edit';
 import { CtaEdit } from './blocks/cta/edit';
 import { FaqListEdit } from './blocks/faq-list/edit';
 import { HeroEdit } from './blocks/hero/edit';
@@ -20,6 +25,7 @@ import { WelcomeEdit } from './blocks/welcome/edit';
 
 export const stableBlocks = [
   attorneyCard,
+  attorneyGrid,
   cta,
   faqList,
   hero,
@@ -31,6 +37,7 @@ export const stableBlocks = [
 
 const editors = {
   'goetz/attorney-card': AttorneyCardEdit,
+  'goetz/attorney-grid': AttorneyGridEdit,
   'goetz/cta': CtaEdit,
   'goetz/faq-list': FaqListEdit,
   'goetz/hero': HeroEdit,
@@ -44,7 +51,11 @@ export function registerStableBlocks(registerBlockType) {
   stableBlocks.forEach(({ name }) => {
     registerBlockType(name, {
       edit: editors[name],
-      save: name === 'goetz/practice-areas' ? savePracticeAreas : () => null,
+      save: name === 'goetz/attorney-grid'
+        ? saveAttorneyGrid
+        : name === 'goetz/practice-areas'
+          ? savePracticeAreas
+          : () => null,
     });
   });
 }

@@ -17,6 +17,7 @@ function goetz_site_integration_assert($condition, string $message): void
 
 $expected = [
     'goetz/attorney-card' => ['name', 'role', 'bio', 'email', 'imageUrl', 'imageAlt', 'profileUrl', 'imageId', 'profileNewTab'],
+    'goetz/attorney-grid' => ['heading'],
     'goetz/cta'           => ['eyebrow', 'heading', 'buttonText', 'buttonUrl', 'backgroundImageId', 'backgroundImageUrl', 'buttonNewTab'],
     'goetz/faq-list'      => ['items'],
     'goetz/hero'          => ['eyebrow', 'heading', 'content', 'imageUrl', 'imageAlt', 'buttonText', 'buttonUrl', 'imageId', 'buttonNewTab'],
@@ -142,6 +143,31 @@ $practice_view_handles = array_values(array_filter(
 goetz_site_integration_assert(
     count($practice_view_handles) === 1,
     'Practice Areas must register exactly one frontend animation script.'
+);
+$attorney_grid_type = $registry->get_registered('goetz/attorney-grid');
+$attorney_card_type = $registry->get_registered('goetz/attorney-card');
+goetz_site_integration_assert(
+    $attorney_grid_type instanceof WP_Block_Type && $attorney_card_type instanceof WP_Block_Type,
+    'Attorney Grid and its reusable card must both register from metadata.'
+);
+goetz_site_integration_assert(
+    ($attorney_grid_type->supports['html'] ?? null) === false
+        && ($attorney_card_type->supports['html'] ?? null) === false,
+    'Attorney Grid and Attorney Card must keep Custom HTML disabled.'
+);
+goetz_site_integration_assert(
+    ($attorney_card_type->parent ?? null) === null
+        && ! array_key_exists('inserter', $attorney_card_type->supports),
+    'Attorney Card must remain available for standalone profile insertion.'
+);
+goetz_site_integration_assert(
+    ($attorney_grid_type->provides_context ?? []) === [
+        'goetz/attorneyGridHeading' => 'heading',
+    ]
+        && ($attorney_card_type->uses_context ?? []) === [
+            'goetz/attorneyGridHeading',
+        ],
+    'Attorney Grid heading-level context changed.'
 );
 $editor_data = wp_scripts()->get_data('goetz-site-block-editor', 'data');
 $localized_settings_match = [];
@@ -444,6 +470,76 @@ goetz_site_integration_assert(
     'Practice Area child label is not escaped as plain text.'
 );
 
+$attorney_grid_children = array_map(
+    static fn(string $name): array => [
+        'blockName'    => 'goetz/attorney-card',
+        'attrs'        => [
+            'name'       => $name,
+            'bio'        => $name . ' biography.',
+            'profileUrl' => '/' . sanitize_title($name) . '/',
+        ],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ],
+    ['James L. Goetz', 'Gregory W. Goetz']
+);
+$attorney_grid_block = [
+    'blockName'    => 'goetz/attorney-grid',
+    'attrs'        => ['heading' => '<strong>Our Attorneys</strong>'],
+    'innerBlocks'  => $attorney_grid_children,
+    'innerHTML'    => '',
+    'innerContent' => [null, null],
+];
+$attorney_grid_serialized = serialize_block($attorney_grid_block);
+$attorney_grid_parsed = parse_blocks($attorney_grid_serialized);
+goetz_site_integration_assert(
+    count($attorney_grid_parsed) === 1
+        && ($attorney_grid_parsed[0]['blockName'] ?? '') === 'goetz/attorney-grid'
+        && count($attorney_grid_parsed[0]['innerBlocks'] ?? []) === 2
+        && serialize_blocks($attorney_grid_parsed) === $attorney_grid_serialized,
+    'Attorney Grid InnerBlocks do not survive WordPress serialization unchanged.'
+);
+$attorney_grid_rendered = do_blocks($attorney_grid_serialized);
+goetz_site_integration_assert(substr_count($attorney_grid_rendered, '<section') === 1, 'Attorney Grid must render exactly one section.');
+goetz_site_integration_assert(substr_count($attorney_grid_rendered, '<h2') === 1, 'Attorney Grid must render exactly one H2.');
+goetz_site_integration_assert(substr_count($attorney_grid_rendered, '<h3') === 2, 'Attorney Grid cards must preserve H3 hierarchy.');
+goetz_site_integration_assert(substr_count($attorney_grid_rendered, '<article') === 2, 'Attorney Grid must render each serialized card exactly once.');
+foreach (['wp-block-goetz-attorney-grid', 'goetz-attorney-grid', 'goetz-section--attorneys', 'goetz-attorney-grid__cards', '&lt;strong&gt;Our Attorneys&lt;/strong&gt;'] as $needle) {
+    goetz_site_integration_assert(str_contains($attorney_grid_rendered, $needle), "Attorney Grid output changed: {$needle}");
+}
+foreach (['James L. Goetz', 'Gregory W. Goetz'] as $name) {
+    goetz_site_integration_assert(
+        substr_count($attorney_grid_rendered, '>' . $name . '</h3>') === 1,
+        "Attorney Grid child was lost or duplicated: {$name}"
+    );
+}
+$profile_styled_grid_card = do_blocks(serialize_block([
+    'blockName'    => 'goetz/attorney-grid',
+    'attrs'        => ['heading' => 'Attorneys'],
+    'innerBlocks'  => [[
+        'blockName'    => 'goetz/attorney-card',
+        'attrs'        => [
+            'className' => 'is-style-profile',
+            'name'      => 'Grid Context Wins',
+        ],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ]],
+    'innerHTML'    => '',
+    'innerContent' => [null],
+]));
+goetz_site_integration_assert(
+    substr_count($profile_styled_grid_card, '<h2') === 1
+        && substr_count($profile_styled_grid_card, '<h3') === 1
+        && str_contains(
+            $profile_styled_grid_card,
+            '<h3><span class="goetz-attorney-card__accent">Grid Context</span> Wins</h3>'
+        ),
+    'Attorney Grid context must preserve the H3 hierarchy when a child has the profile style.'
+);
+
 $attorney = render_block([
     'blockName'    => 'goetz/attorney-card',
     'attrs'        => [
@@ -462,6 +558,7 @@ $attorney = render_block([
 foreach (['wp-block-goetz-attorney-card', 'goetz-attorney-card', 'Jordan Example', 'Trial Attorney', 'Representative legacy biography.', 'mailto:jordan@example.test', '/jordan-example/', 'https://example.test/jordan.jpg', 'Jordan Example portrait'] as $needle) {
     goetz_site_integration_assert(str_contains($attorney, $needle), "Attorney card output changed: {$needle}");
 }
+goetz_site_integration_assert(substr_count($attorney, '<h2') === 1, 'Standalone default Attorney Card must retain its H2.');
 
 $cta = render_block([
     'blockName'    => 'goetz/cta',
@@ -478,6 +575,11 @@ $cta = render_block([
 foreach (['wp-block-goetz-cta', 'goetz-cta', 'CUSTOM EYEBROW', 'READY <strong>NOW?</strong>', 'Request Help', 'href="/request-help/"'] as $needle) {
     goetz_site_integration_assert(str_contains($cta, $needle), "CTA output changed: {$needle}");
 }
+goetz_site_integration_assert(
+    str_contains($cta, 'data-goetz-cta-background=')
+        && str_contains(wp_kses_post($cta), 'data-goetz-cta-background='),
+    'CTA data-backed background does not survive WordPress filtering.'
+);
 
 $legacy_cta = render_block([
     'blockName'    => 'goetz/cta',
@@ -494,6 +596,28 @@ if (! function_exists('goetz_legal_asset_url')) {
         'CTA legacy background fallback is missing without the theme.'
     );
 }
+
+$cta_settings_filter = static fn() => [
+    'cta_label' => 'Schedule from Site Settings',
+    'cta_url'   => '/site-settings-contact/',
+];
+add_filter('pre_option_goetz_site_settings', $cta_settings_filter);
+try {
+    $cta_settings_fallback = render_block([
+        'blockName'    => 'goetz/cta',
+        'attrs'        => ['buttonText' => ' ', 'buttonUrl' => ' '],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ]);
+} finally {
+    remove_filter('pre_option_goetz_site_settings', $cta_settings_filter);
+}
+goetz_site_integration_assert(
+    str_contains($cta_settings_fallback, '>Schedule from Site Settings</a>')
+        && str_contains($cta_settings_fallback, 'href="/site-settings-contact/"'),
+    'CTA empty label and URL do not inherit the effective Site Settings defaults.'
+);
 
 $faq = render_block([
     'blockName'    => 'goetz/faq-list',
@@ -529,6 +653,15 @@ $hero = render_block([
 foreach (['wp-block-goetz-hero', 'goetz-hero', 'CUSTOM HERO', 'Trusted <strong>Counsel</strong>', 'Representative hero copy.', 'https://example.test/hero.jpg', 'Representative hero portrait', 'Meet the Team', 'href="/team/"'] as $needle) {
     goetz_site_integration_assert(str_contains($hero, $needle), "Hero output changed: {$needle}");
 }
+goetz_site_integration_assert(substr_count($hero, '<h1') === 1, 'Hero must render exactly one frontend H1.');
+goetz_site_integration_assert(
+    strpos($hero, 'goetz-hero__content') < strpos($hero, 'goetz-hero__media'),
+    'Hero source order must place copy before its circular image.'
+);
+goetz_site_integration_assert(
+    str_contains($hero, 'loading="eager"') && str_contains($hero, 'fetchpriority="high"'),
+    'Hero URL fallback must retain eager high-priority image loading.'
+);
 
 $resource_links = render_block([
     'blockName'    => 'goetz/resource-links',
@@ -709,7 +842,11 @@ try {
     ]);
     goetz_site_integration_assert(str_contains($hero_attachment, esc_url($attachment_url)), 'Hero did not prefer its image attachment ID.');
     goetz_site_integration_assert(! str_contains($hero_attachment, 'ignored-hero.jpg'), 'Hero did not suppress its URL fallback for a valid attachment.');
-    goetz_site_integration_assert(str_contains($hero_attachment, 'width="910"') && str_contains($hero_attachment, 'height="660"') && str_contains($hero_attachment, 'loading="eager"'), 'Hero attachment output lacks intrinsic dimensions or eager loading.');
+    goetz_site_integration_assert(str_contains($hero_attachment, 'width="910"') && str_contains($hero_attachment, 'height="660"') && str_contains($hero_attachment, 'loading="eager"') && str_contains($hero_attachment, 'fetchpriority="high"') && str_contains($hero_attachment, 'srcset="'), 'Hero attachment output lacks intrinsic dimensions, responsive sources, or eager high-priority loading.');
+    goetz_site_integration_assert(
+        preg_match('/sizes="\(min-width: 1180px\) 508px, \(min-width: 782px\) calc\(47vw - 47px\), 85vw"/', $hero_attachment) === 1,
+        'Hero responsive attachment sizes changed.'
+    );
 
     $attorney_attachment = render_block([
         'blockName'    => 'goetz/attorney-card',

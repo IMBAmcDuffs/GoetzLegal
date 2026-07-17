@@ -1,0 +1,153 @@
+.goetz-attorney-grid {
+  --goetz-attorney-grid-purple: #7951a9;
+  background: #fff;
+  box-sizing: border-box;
+  margin: 0;
+  padding: clamp(72px, 7vw, 100px) 0 clamp(80px, 7vw, 104px);
+  width: 100%;
+}
+
+.goetz-attorney-grid *,
+.goetz-attorney-grid *::before,
+.goetz-attorney-grid *::after {
+  box-sizing: border-box;
+}
+
+.goetz-attorney-grid__heading,
+.goetz-attorney-grid__cards {
+  margin-inline: auto;
+  width: min(1080px, calc(100% - 100px));
+}
+
+.goetz-attorney-grid__heading {
+  color: #212529;
+  font-family: Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 32px;
+  font-weight: 400;
+  line-height: 1.1;
+  margin-bottom: 36px;
+  margin-top: 0;
+  text-align: center;
+  text-transform: none;
+}
+
+.goetz-attorney-grid__cards {
+  display: grid;
+  gap: 48px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.goetz-attorney-grid .goetz-attorney-card {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  display: block;
+  height: auto;
+  overflow: visible;
+}
+
+.goetz-attorney-grid .goetz-attorney-card__image,
+.goetz-attorney-grid .goetz-attorney-card__image-placeholder {
+  aspect-ratio: 910 / 500;
+  display: block;
+  height: auto;
+  object-fit: cover;
+  width: 100%;
+}
+
+.goetz-attorney-grid .goetz-attorney-card__image-placeholder {
+  align-items: center;
+  background: #f2f2f2;
+  border: 1px dashed var(--goetz-attorney-grid-purple);
+  color: var(--goetz-attorney-grid-purple);
+  display: flex;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.goetz-attorney-grid .goetz-attorney-card__body {
+  padding: 25px 0 0;
+  text-align: left;
+}
+
+.goetz-attorney-grid .goetz-attorney-card h3 {
+  color: #212529;
+  font-family: Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: 1px;
+  line-height: 1.1;
+  margin: 0 0 14px;
+  text-transform: uppercase;
+}
+
+.goetz-attorney-grid .goetz-attorney-card p {
+  color: #212529;
+  font-size: 16px;
+  line-height: 1.65;
+  margin: 0;
+}
+
+.goetz-attorney-grid .goetz-attorney-card__links {
+  justify-content: flex-start;
+  margin-top: 22px;
+}
+
+.goetz-attorney-grid .goetz-attorney-card__links a,
+.goetz-attorney-grid .goetz-attorney-card__link-preview {
+  align-items: center;
+  background: transparent;
+  border: 3px solid rgb(0 0 0 / 60%);
+  border-radius: 40px;
+  color: rgb(0 0 0 / 60%);
+  display: inline-flex;
+  font-size: 20px;
+  font-weight: 500;
+  height: 56px;
+  justify-content: center;
+  letter-spacing: 0;
+  min-width: 197px;
+  padding: 0 20px;
+  line-height: 24px;
+  text-transform: uppercase;
+}
+
+.goetz-attorney-grid .goetz-attorney-card__links a:hover,
+.goetz-attorney-grid .goetz-attorney-card__links a:focus-visible,
+.goetz-attorney-grid .goetz-attorney-card__link-preview:hover {
+  background: rgb(0 0 0 / 60%);
+  color: #fff;
+}
+
+.editor-styles-wrapper .goetz-attorney-grid__cards > .block-editor-inner-blocks,
+.editor-styles-wrapper .goetz-attorney-grid__cards > .block-editor-inner-blocks > .block-editor-block-list__layout {
+  width: 100%;
+}
+
+.editor-styles-wrapper .goetz-attorney-grid__cards > .block-editor-inner-blocks > .block-editor-block-list__layout {
+  display: grid;
+  gap: 48px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 782px) {
+  .goetz-attorney-grid__cards {
+    column-gap: 6%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 48px;
+  }
+
+  .editor-styles-wrapper .goetz-attorney-grid__cards > .block-editor-inner-blocks > .block-editor-block-list__layout {
+    column-gap: 6%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 48px;
+  }
+}
+
+@media (max-width: 600px) {
+  .goetz-attorney-grid__heading,
+  .goetz-attorney-grid__cards {
+    width: 85vw;
+  }
+}

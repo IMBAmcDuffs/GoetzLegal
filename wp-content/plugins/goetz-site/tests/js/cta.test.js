@@ -20,9 +20,15 @@ jest.mock('@wordpress/element', () => ({
 jest.mock('@wordpress/i18n', () => ({ __: (value) => value }));
 
 import { CtaEdit, save } from '../../src/blocks/cta/edit';
-import { findByLabel } from './helpers';
+import { findAll, findByLabel } from './helpers';
 
 describe('CTA editor', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+    document.documentElement.classList.remove('goetz-cta-ready');
+    jest.resetModules();
+  });
+
   test('renders current copy and preserves the button label when its link changes', () => {
     const setAttributes = jest.fn();
     const tree = CtaEdit({
@@ -83,6 +89,38 @@ describe('CTA editor', () => {
       backgroundImageId: 0,
       backgroundImageUrl: '',
     });
+  });
+
+  test('composes the selected background image under the editor overlay', () => {
+    const tree = CtaEdit({
+      attributes: {
+        backgroundImageId: 31,
+        backgroundImageUrl: 'https://example.test/gavel.jpg',
+      },
+      setAttributes: jest.fn(),
+    });
+    const [preview] = findAll(
+      tree,
+      (node) => node.type === 'section' && node.props?.className?.includes('goetz-editor-preview--cta')
+    );
+
+    expect(preview.props.style).toEqual({
+      '--goetz-cta-background-image': 'url("https://example.test/gavel.jpg")',
+    });
+  });
+
+  test('hydrates a filtered data-backed background into the presentation property', () => {
+    document.body.innerHTML = `
+      <section class="goetz-cta" data-goetz-cta-background="https://example.test/gavel.jpg"></section>
+    `;
+
+    jest.isolateModules(() => require('../../blocks/cta/view'));
+
+    expect(
+      document.querySelector('.goetz-cta').style.getPropertyValue(
+        '--goetz-cta-background-image'
+      )
+    ).toBe('url("https://example.test/gavel.jpg")');
   });
 
   test('is dynamic', () => {

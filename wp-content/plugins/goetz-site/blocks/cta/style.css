@@ -1,6 +1,7 @@
 .editor-styles-wrapper .goetz-editor-preview--cta {
   align-items: center;
   background-color: #2d2d2d;
+  background-image: linear-gradient(rgb(45 45 45 / 90%), rgb(45 45 45 / 90%)), var(--goetz-cta-background-image, none);
   background-position: 50% 50%;
   background-size: cover;
   color: #fff;

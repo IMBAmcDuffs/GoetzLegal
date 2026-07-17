@@ -33,38 +33,49 @@ export function HeroEdit({ attributes = {}, setAttributes }) {
         </PanelBody>
       </InspectorControls>
       <section {...blockProps}>
-        <RichText
-          tagName="p"
-          className="goetz-editor-preview__eyebrow"
-          aria-label={__('Hero eyebrow', 'goetz-site')}
-          value={attributes.eyebrow || ''}
-          allowedFormats={[]}
-          onChange={(eyebrow) => setAttributes({ eyebrow })}
-        />
-        <RichText
-          tagName="h2"
-          className="goetz-editor-preview__heading"
-          aria-label={__('Hero heading', 'goetz-site')}
-          value={attributes.heading || ''}
-          allowedFormats={['core/bold', 'core/italic']}
-          onChange={(heading) => setAttributes({ heading })}
-        />
-        <RichText
-          tagName="p"
-          className="goetz-editor-preview__content"
-          aria-label={__('Hero content', 'goetz-site')}
-          value={attributes.content || ''}
-          allowedFormats={['core/bold', 'core/italic', 'core/link']}
-          onChange={(content) => setAttributes({ content })}
-        />
-        <RichText
-          tagName="span"
-          className="goetz-editor-preview__button"
-          aria-label={__('Hero button text', 'goetz-site')}
-          value={attributes.buttonText || ''}
-          allowedFormats={[]}
-          onChange={(buttonText) => setAttributes({ buttonText })}
-        />
+        <div className="goetz-hero__content">
+          <RichText
+            tagName="p"
+            className="goetz-editor-preview__eyebrow"
+            aria-label={__('Hero eyebrow', 'goetz-site')}
+            value={attributes.eyebrow || ''}
+            allowedFormats={[]}
+            onChange={(eyebrow) => setAttributes({ eyebrow })}
+          />
+          <RichText
+            tagName="h1"
+            className="goetz-editor-preview__heading"
+            aria-label={__('Hero heading', 'goetz-site')}
+            value={attributes.heading || ''}
+            allowedFormats={['core/bold', 'core/italic']}
+            onChange={(heading) => setAttributes({ heading })}
+          />
+          <RichText
+            tagName="p"
+            className="goetz-editor-preview__content"
+            aria-label={__('Hero content', 'goetz-site')}
+            value={attributes.content || ''}
+            allowedFormats={['core/bold', 'core/italic', 'core/link']}
+            onChange={(content) => setAttributes({ content })}
+          />
+          <RichText
+            tagName="span"
+            className="goetz-editor-preview__button"
+            aria-label={__('Hero button text', 'goetz-site')}
+            value={attributes.buttonText || ''}
+            allowedFormats={[]}
+            onChange={(buttonText) => setAttributes({ buttonText })}
+          />
+        </div>
+        {attributes.imageUrl ? (
+          <figure className="goetz-hero__media">
+            <img
+              className="goetz-hero__image"
+              src={attributes.imageUrl}
+              alt={attributes.imageAlt || ''}
+            />
+          </figure>
+        ) : null}
       </section>
     </Fragment>
   );

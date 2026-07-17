@@ -502,6 +502,7 @@ async function expectCleanValidEditor(page: Page): Promise<void> {
 }
 
 test('existing Goetz blocks save, reload, and update through their native editors', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.metadata.scope !== 'auth');
   test.setTimeout(240_000);
   page.setDefaultTimeout(8_000);
   page.setDefaultNavigationTimeout(15_000);
@@ -781,6 +782,293 @@ test('existing Goetz blocks save, reload, and update through their native editor
       ...expectedHero,
       eyebrow: 'Hero eyebrow after reload',
     });
+  } finally {
+    await cleanupFixtures(page, baseURL, fixtures);
+  }
+});
+
+async function task8EditorCanvas(page: Page) {
+  const iframe = page.locator('iframe[name="editor-canvas"]');
+  return (await iframe.count()) > 0 ? iframe.contentFrame() : page;
+}
+
+async function waitForTask8Blocks(page: Page): Promise<void> {
+  await page.waitForFunction(() => Boolean(
+    (globalThis as any).wp?.blocks?.getBlockType('goetz/attorney-grid')
+      && (globalThis as any).wp?.blocks?.getBlockType('goetz/attorney-card')
+      && (globalThis as any).wp?.blocks?.getBlockType('goetz/hero')
+      && (globalThis as any).wp?.blocks?.getBlockType('goetz/cta'),
+  ));
+}
+
+async function readAttorneyGridState(page: Page): Promise<{
+  heading: string;
+  names: string[];
+  valid: boolean;
+  content: string;
+}> {
+  return page.evaluate(() => {
+    const wordpress = (globalThis as any).wp;
+    const grid = wordpress.data
+      .select('core/block-editor')
+      .getBlocks()
+      .find((block: any) => block.name === 'goetz/attorney-grid');
+    return {
+      heading: String(grid?.attributes?.heading || ''),
+      names: (grid?.innerBlocks || []).map(
+        (block: any) => String(block.attributes?.name || ''),
+      ),
+      valid: grid?.isValid !== false
+        && (grid?.innerBlocks || []).every((block: any) => block.isValid !== false),
+      content: String(
+        wordpress.data.select('core/editor').getEditedPostContent?.() || '',
+      ),
+    };
+  });
+}
+
+test('Attorney Grid uses native add edit remove reorder save and reload controls', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.metadata.scope !== 'auth');
+  test.setTimeout(180_000);
+  page.setDefaultTimeout(8_000);
+  page.setDefaultNavigationTimeout(15_000);
+  const baseURL = requireLocalAuthenticatedProject(testInfo);
+  const fixtures: CreatedFixtures = {};
+
+  try {
+    fixtures.draft = await createTemporaryDraft(page, `Attorney Grid ${randomUUID()}`);
+    await waitForTask8Blocks(page);
+    await page.evaluate(() => {
+      const wordpress = (globalThis as any).wp;
+      const children = [
+        wordpress.blocks.createBlock('goetz/attorney-card', {
+          name: 'James L. Goetz',
+          bio: 'James biography',
+          profileUrl: '/james-l-goetz/',
+        }),
+        wordpress.blocks.createBlock('goetz/attorney-card', {
+          name: 'Gregory W. Goetz',
+          bio: 'Gregory biography',
+          profileUrl: '/gregory-w-goetz/',
+        }),
+      ];
+      wordpress.data.dispatch('core/block-editor').resetBlocks([
+        wordpress.blocks.createBlock(
+          'goetz/attorney-grid',
+          { heading: 'Attorneys' },
+          children,
+        ),
+      ]);
+    });
+    await expect.poll(() => readAttorneyGridState(page)).toMatchObject({
+      heading: 'Attorneys',
+      names: ['James L. Goetz', 'Gregory W. Goetz'],
+      valid: true,
+    });
+
+    const insertionPolicy = await page.evaluate(() => {
+      const wordpress = (globalThis as any).wp;
+      const editor = wordpress.data.select('core/block-editor');
+      const grid = editor.getBlocks().find(
+        (block: any) => block.name === 'goetz/attorney-grid',
+      );
+      return {
+        cardTopLevel: editor.canInsertBlockType('goetz/attorney-card', ''),
+        cardNested: editor.canInsertBlockType('goetz/attorney-card', grid.clientId),
+        paragraphNested: editor.canInsertBlockType('core/paragraph', grid.clientId),
+      };
+    });
+    expect(insertionPolicy).toEqual({
+      cardTopLevel: true,
+      cardNested: true,
+      paragraphNested: false,
+    });
+
+    const canvas = await task8EditorCanvas(page);
+    const grid = canvas.locator('[data-type="goetz/attorney-grid"]');
+    const firstCard = grid.locator('[data-type="goetz/attorney-card"]').first();
+    await expect(firstCard).toHaveCSS('box-shadow', 'none');
+    await expect(firstCard.locator('h3')).toHaveText('James L. Goetz');
+    const firstBioPreview = firstCard.locator('.goetz-attorney-card__link-preview');
+    await expect(firstBioPreview).toHaveCSS('border-top-width', '3px');
+    await expect(firstBioPreview).toHaveCSS('border-top-left-radius', '40px');
+    await expect(firstBioPreview).toHaveCSS('font-weight', '500');
+    const heading = grid.getByLabel('Attorney Grid heading', { exact: true });
+    await heading.fill('Trial Attorneys');
+
+    const names = grid.getByLabel('Attorney name', { exact: true });
+    await expect(names).toHaveCount(2);
+    await names.last().click();
+    await grid
+      .getByRole('button', { name: 'Add Goetz Attorney Card', exact: true })
+      .click();
+    await expect(names).toHaveCount(3);
+    await names.last().click();
+    await names.last().pressSequentially('Temporary Attorney');
+    await expect.poll(() => readAttorneyGridState(page)).toMatchObject({
+      names: ['James L. Goetz', 'Gregory W. Goetz', 'Temporary Attorney'],
+    });
+    await names.last().press('Shift+Alt+Z');
+    await expect(names).toHaveCount(2);
+
+    await names.first().fill('James L. Goetz, Esq.');
+    await names.nth(1).click();
+    await names.nth(1).press('Control+Shift+Alt+T');
+    await expect.poll(() => readAttorneyGridState(page)).toMatchObject({
+      heading: 'Trial Attorneys',
+      names: ['Gregory W. Goetz', 'James L. Goetz, Esq.'],
+      valid: true,
+    });
+
+    await saveEditor(page);
+    const beforeReload = await readAttorneyGridState(page);
+    expect(beforeReload.content.match(/wp:goetz\/attorney-card/g)).toHaveLength(2);
+    expect(beforeReload.content).not.toContain('Temporary Attorney');
+
+    await page.goto(`/wp-admin/post.php?post=${fixtures.draft.id}&action=edit`, {
+      waitUntil: 'domcontentloaded',
+    });
+    await waitForTask8Blocks(page);
+    await expect.poll(() => readAttorneyGridState(page)).toMatchObject({
+      heading: 'Trial Attorneys',
+      names: ['Gregory W. Goetz', 'James L. Goetz, Esq.'],
+      valid: true,
+    });
+    expect(await page.getByText(
+      /invalid content|attempt block recovery|modified externally|updated outside of this editor/i,
+    ).count()).toBe(0);
+    expect(await page.evaluate(() => (
+      (globalThis as any).wp.data.select('core/editor').isEditedPostDirty()
+    ))).toBe(false);
+  } finally {
+    await cleanupFixtures(page, baseURL, fixtures);
+  }
+});
+
+test('Hero block previews text before media and persists its protected external link', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.metadata.scope !== 'auth');
+  test.setTimeout(120_000);
+  page.setDefaultTimeout(8_000);
+  page.setDefaultNavigationTimeout(15_000);
+  const baseURL = requireLocalAuthenticatedProject(testInfo);
+  const fixtures: CreatedFixtures = {};
+
+  try {
+    fixtures.draft = await createTemporaryDraft(page, `Hero block ${randomUUID()}`);
+    await waitForTask8Blocks(page);
+    await page.evaluate(() => {
+      const wordpress = (globalThis as any).wp;
+      wordpress.data.dispatch('core/block-editor').resetBlocks([
+        wordpress.blocks.createBlock('goetz/hero', {
+          eyebrow: 'Experienced counsel',
+          heading: 'Trusted <strong>Trial Attorneys</strong>',
+          content: 'Focused representation.',
+          imageUrl: '/wp-content/plugins/goetz-site/assets/seed/JAMES-L-2.jpg',
+          imageAlt: 'Goetz attorneys',
+          buttonText: 'Meet our attorneys',
+          buttonUrl: '/attorneys/',
+          buttonNewTab: false,
+        }),
+      ]);
+    });
+    const canvas = await task8EditorCanvas(page);
+    const hero = canvas.locator('[data-type="goetz/hero"]');
+    await expect(hero.locator('.goetz-hero__content')).toBeVisible();
+    await expect(hero.locator('.goetz-hero__media img')).toHaveAttribute(
+      'alt',
+      'Goetz attorneys',
+    );
+    const sourceOrder = await hero.evaluate((section) => (
+      section.querySelector('.goetz-hero__content')?.compareDocumentPosition(
+        section.querySelector('.goetz-hero__media')!,
+      ) || 0
+    ));
+    expect(sourceOrder & 4).toBe(4);
+
+    await selectBlock(page, 'goetz/hero');
+    await setLink(
+      page,
+      hero,
+      'Hero button link',
+      'Open Hero button link in new tab',
+      'https://example.test/hero-profile',
+      true,
+    );
+    await saveEditor(page);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await waitForTask8Blocks(page);
+    const [saved] = await readSavedBlocks(page);
+    expect(saved).toMatchObject({
+      name: 'goetz/hero',
+      isValid: true,
+      attributes: expect.objectContaining({
+        buttonUrl: 'https://example.test/hero-profile',
+        buttonNewTab: true,
+      }),
+    });
+    expect(await page.getByText(
+      /invalid content|attempt block recovery|modified externally|updated outside of this editor/i,
+    ).count()).toBe(0);
+  } finally {
+    await cleanupFixtures(page, baseURL, fixtures);
+  }
+});
+
+test('CTA block previews its selected background and persists its protected external link', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.metadata.scope !== 'auth');
+  test.setTimeout(120_000);
+  page.setDefaultTimeout(8_000);
+  page.setDefaultNavigationTimeout(15_000);
+  const baseURL = requireLocalAuthenticatedProject(testInfo);
+  const fixtures: CreatedFixtures = {};
+
+  try {
+    fixtures.draft = await createTemporaryDraft(page, `CTA block ${randomUUID()}`);
+    await waitForTask8Blocks(page);
+    await page.evaluate(() => {
+      const wordpress = (globalThis as any).wp;
+      wordpress.data.dispatch('core/block-editor').resetBlocks([
+        wordpress.blocks.createBlock('goetz/cta', {
+          eyebrow: 'Experienced team',
+          heading: 'Need a <strong>lawyer?</strong>',
+          buttonText: 'Get consultation',
+          buttonUrl: '/contact/',
+          buttonNewTab: false,
+          backgroundImageUrl: '/wp-content/plugins/goetz-site/assets/seed/JAMES-L-2.jpg',
+        }),
+      ]);
+    });
+    const canvas = await task8EditorCanvas(page);
+    const cta = canvas.locator('[data-type="goetz/cta"]');
+    await expect(cta).toHaveCSS(
+      'background-image',
+      /linear-gradient.*JAMES-L-2\.jpg/,
+    );
+    await selectBlock(page, 'goetz/cta');
+    await setLink(
+      page,
+      cta,
+      'CTA button link',
+      'Open CTA button link in new tab',
+      'https://example.test/consultation',
+      true,
+    );
+    await saveEditor(page);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await waitForTask8Blocks(page);
+    const [saved] = await readSavedBlocks(page);
+    expect(saved).toMatchObject({
+      name: 'goetz/cta',
+      isValid: true,
+      attributes: expect.objectContaining({
+        buttonUrl: 'https://example.test/consultation',
+        buttonNewTab: true,
+        backgroundImageUrl: '/wp-content/plugins/goetz-site/assets/seed/JAMES-L-2.jpg',
+      }),
+    });
+    expect(await page.getByText(
+      /invalid content|attempt block recovery|modified externally|updated outside of this editor/i,
+    ).count()).toBe(0);
   } finally {
     await cleanupFixtures(page, baseURL, fixtures);
   }

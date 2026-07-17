@@ -19,7 +19,8 @@
   text-align: center;
 }
 
-.goetz-attorney-card h2 {
+.goetz-attorney-card h2,
+.goetz-attorney-card h3 {
   color: #20242c;
   font-family: Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
   font-size: 1.65rem;

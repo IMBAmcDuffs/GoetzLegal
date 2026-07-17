@@ -26,6 +26,10 @@ $profile_url = $scalar($attrs['profileUrl']);
 $profile_new_tab = \Goetz\Site\normalize_boolean($attrs['profileNewTab']);
 $class_name = $scalar($attrs['className'] ?? '');
 $is_profile = preg_match('/(?:^|\s)is-style-profile(?:\s|$)/', $class_name) === 1;
+$context = isset($block) && $block instanceof WP_Block && is_array($block->context)
+    ? $block->context
+    : [];
+$is_grid_card = array_key_exists('goetz/attorneyGridHeading', $context);
 $image_id = \Goetz\Site\valid_image_attachment_id($attrs['imageId']);
 $image_html = '';
 $name_markup = esc_html($name);
@@ -70,7 +74,11 @@ if ($image_html === '' && trim($image_url) !== '') {
         <?php if ($is_profile): ?>
             <img class="goetz-attorney-card__mark" src="<?php echo esc_url(GOETZ_SITE_URL . 'assets/seed/law-scale-icon-purple.png'); ?>" alt="" aria-hidden="true" width="40" height="39">
         <?php endif; ?>
-        <h2><?php echo $name_markup; ?></h2>
+        <?php if ($is_grid_card): ?>
+            <h3><?php echo $name_markup; ?></h3>
+        <?php else: ?>
+            <h2><?php echo $name_markup; ?></h2>
+        <?php endif; ?>
         <?php if (trim($role) !== ''): ?>
             <p class="goetz-attorney-card__role"><?php echo esc_html($role); ?></p>
         <?php endif; ?>

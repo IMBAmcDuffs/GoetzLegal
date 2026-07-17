@@ -33,17 +33,18 @@ if ($image_id > 0) {
         'full',
         false,
         [
+            'class'         => 'goetz-hero__image',
             'alt'           => $image_alt,
             'loading'       => 'eager',
             'fetchpriority' => 'high',
-            'sizes'         => '(min-width: 782px) 410px, min(100vw - 48px, 420px)',
+            'sizes'         => '(min-width: 1180px) 508px, (min-width: 782px) calc(47vw - 47px), 85vw',
         ]
     );
 }
 
 if ($image_html === '' && trim($image_url) !== '') {
     $image_html = sprintf(
-        '<img src="%1$s" alt="%2$s" loading="eager" fetchpriority="high">',
+        '<img class="goetz-hero__image" src="%1$s" alt="%2$s" loading="eager" fetchpriority="high">',
         esc_url($image_url),
         esc_attr($image_alt)
     );
