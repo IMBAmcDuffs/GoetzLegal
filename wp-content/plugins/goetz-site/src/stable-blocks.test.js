@@ -1,11 +1,19 @@
-jest.mock('@wordpress/block-editor', () => ({
-  InspectorControls: 'InspectorControls',
-  MediaUpload: 'MediaUpload',
-  MediaUploadCheck: 'MediaUploadCheck',
-  RichText: 'RichText',
-  URLInputButton: 'URLInputButton',
-  useBlockProps: jest.fn(() => ({})),
-}));
+jest.mock('@wordpress/block-editor', () => {
+  const InnerBlocks = function InnerBlocks() {};
+  InnerBlocks.ButtonBlockAppender = 'InnerBlocks.ButtonBlockAppender';
+  InnerBlocks.Content = 'InnerBlocks.Content';
+
+  return {
+    InnerBlocks,
+    InspectorControls: 'InspectorControls',
+    MediaUpload: 'MediaUpload',
+    MediaUploadCheck: 'MediaUploadCheck',
+    RichText: 'RichText',
+    URLInput: 'URLInput',
+    URLInputButton: 'URLInputButton',
+    useBlockProps: jest.fn(() => ({})),
+  };
+});
 jest.mock('@wordpress/components', () => ({
   BaseControl: 'BaseControl',
   Button: 'Button',
@@ -15,7 +23,10 @@ jest.mock('@wordpress/components', () => ({
 }));
 jest.mock('@wordpress/element', () => ({
   Fragment: 'Fragment',
-  createElement: jest.fn(),
+  createElement: (type, props, ...children) => ({
+    type,
+    props: { ...(props || {}), children },
+  }),
   useRef: jest.fn((value) => ({ current: value })),
 }));
 jest.mock('@wordpress/i18n', () => ({
@@ -64,6 +75,21 @@ const expectedAttributes = {
     imageId: { type: 'number', default: 0 },
     buttonNewTab: { type: 'boolean', default: false },
   },
+  'goetz/practice-area-item': {
+    label: { type: 'string', default: '' },
+  },
+  'goetz/practice-areas': {
+    heading: {
+      type: 'string',
+      default: 'Providing <strong>Legal Advice</strong> in:',
+    },
+    backgroundImageId: { type: 'number', default: 0 },
+    backgroundImageUrl: { type: 'string', default: '' },
+    backgroundImageAlt: { type: 'string', default: '' },
+    scaleImageId: { type: 'number', default: 0 },
+    scaleImageUrl: { type: 'string', default: '' },
+    scaleImageAlt: { type: 'string', default: '' },
+  },
   'goetz/resource-links': {
     groups: { type: 'array', default: [] },
     imageUrl: { type: 'string', default: '' },
@@ -103,25 +129,55 @@ describe('stable Goetz blocks', () => {
       expect(metadata.attributes).toEqual(expectedAttributes[metadata.name]);
       expect(metadata.textdomain).toBe('goetz-site');
       expect(metadata.editorScript).toBe('goetz-site-block-editor');
-      expect(metadata.supports).toEqual({ html: false });
+      expect(metadata.supports).toEqual(
+        metadata.name === 'goetz/practice-area-item'
+          ? { html: false, inserter: false }
+          : { html: false }
+      );
     });
 
     const welcome = stableBlocks.find(({ name }) => name === 'goetz/welcome');
     expect(welcome.render).toBe('file:./render.php');
     expect(welcome.style).toBe('file:./style.css');
     expect(welcome).not.toHaveProperty('viewScript');
+
+    const practiceAreas = stableBlocks.find(
+      ({ name }) => name === 'goetz/practice-areas'
+    );
+    expect(practiceAreas.providesContext).toEqual({
+      'goetz/scaleImageId': 'scaleImageId',
+      'goetz/scaleImageUrl': 'scaleImageUrl',
+      'goetz/scaleImageAlt': 'scaleImageAlt',
+    });
+    expect(practiceAreas.viewScript).toBe('file:./view.js');
+
+    const practiceAreaItem = stableBlocks.find(
+      ({ name }) => name === 'goetz/practice-area-item'
+    );
+    expect(practiceAreaItem.parent).toEqual(['goetz/practice-areas']);
+    expect(practiceAreaItem.usesContext).toEqual([
+      'goetz/scaleImageId',
+      'goetz/scaleImageUrl',
+      'goetz/scaleImageAlt',
+    ]);
   });
 
-  test('registers every stable dynamic block with its native editor', () => {
+  test('registers native editors and preserves only the parent InnerBlocks content', () => {
     const registrations = [];
 
     registerStableBlocks((name, settings) => registrations.push({ name, settings }));
 
     expect(registrations.map(({ name }) => name)).toEqual(Object.keys(expectedAttributes));
-    registrations.forEach(({ settings }) => {
+    registrations.forEach(({ name, settings }) => {
       expect(settings.edit).toBeInstanceOf(Function);
-      expect(settings.save()).toBeNull();
+      if (name === 'goetz/practice-areas') {
+        expect(settings.save()).toEqual(expect.objectContaining({
+          type: 'InnerBlocks.Content',
+        }));
+      } else {
+        expect(settings.save()).toBeNull();
+      }
     });
-    expect(new Set(registrations.map(({ settings }) => settings.edit)).size).toBe(6);
+    expect(new Set(registrations.map(({ settings }) => settings.edit)).size).toBe(8);
   });
 });

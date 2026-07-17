@@ -20,6 +20,8 @@ $expected = [
     'goetz/cta'           => ['eyebrow', 'heading', 'buttonText', 'buttonUrl', 'backgroundImageId', 'backgroundImageUrl', 'buttonNewTab'],
     'goetz/faq-list'      => ['items'],
     'goetz/hero'          => ['eyebrow', 'heading', 'content', 'imageUrl', 'imageAlt', 'buttonText', 'buttonUrl', 'imageId', 'buttonNewTab'],
+    'goetz/practice-area-item' => ['label'],
+    'goetz/practice-areas'=> ['heading', 'backgroundImageId', 'backgroundImageUrl', 'backgroundImageAlt', 'scaleImageId', 'scaleImageUrl', 'scaleImageAlt'],
     'goetz/resource-links'=> ['groups', 'imageUrl', 'imageAlt', 'imageId'],
 ];
 
@@ -99,6 +101,42 @@ goetz_site_integration_assert(
 goetz_site_integration_assert(
     $welcome_type->view_script_handles === [],
     'Welcome must remain fully visible without a frontend script.'
+);
+
+$practice_type = $registry->get_registered('goetz/practice-areas');
+$practice_item_type = $registry->get_registered('goetz/practice-area-item');
+goetz_site_integration_assert(
+    $practice_type instanceof WP_Block_Type && $practice_item_type instanceof WP_Block_Type,
+    'Practice Areas parent and child must both register from metadata.'
+);
+goetz_site_integration_assert(
+    ($practice_type->provides_context ?? []) === [
+        'goetz/scaleImageId'  => 'scaleImageId',
+        'goetz/scaleImageUrl' => 'scaleImageUrl',
+        'goetz/scaleImageAlt' => 'scaleImageAlt',
+    ],
+    'Practice Areas parent context changed.'
+);
+goetz_site_integration_assert(
+    ($practice_item_type->parent ?? []) === ['goetz/practice-areas']
+        && ($practice_item_type->uses_context ?? []) === [
+            'goetz/scaleImageId',
+            'goetz/scaleImageUrl',
+            'goetz/scaleImageAlt',
+        ],
+    'Practice Area child ownership/context changed.'
+);
+goetz_site_integration_assert(
+    ($practice_item_type->supports['inserter'] ?? null) === false,
+    'Practice Area child must not be available in the free-standing inserter.'
+);
+$practice_view_handles = array_values(array_filter(
+    $practice_type->view_script_handles,
+    static fn(string $handle): bool => str_contains($handle, 'practice-areas')
+));
+goetz_site_integration_assert(
+    count($practice_view_handles) === 1,
+    'Practice Areas must register exactly one frontend animation script.'
 );
 $editor_data = wp_scripts()->get_data('goetz-site-block-editor', 'data');
 $localized_settings_match = [];
@@ -313,6 +351,92 @@ $welcome_empty_online_label = render_block([
 goetz_site_integration_assert(
     str_contains($welcome_empty_online_label, '>online</a>'),
     'Welcome empty online label must retain an accessible link name.'
+);
+
+$practice_labels = [
+    'Corporate',
+    'Construction',
+    'Real Estate',
+    'Probate',
+    'Criminal',
+    'Bankruptcy',
+    'Appeals',
+];
+$practice_children = array_map(
+    static fn(string $label): array => [
+        'blockName'    => 'goetz/practice-area-item',
+        'attrs'        => ['label' => $label],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ],
+    $practice_labels
+);
+$practice_block = [
+    'blockName'    => 'goetz/practice-areas',
+    'attrs'        => [
+        'heading'            => 'Providing <strong>Trusted Advice</strong> in:<script>bad()</script>',
+        'backgroundImageUrl' => 'https://example.test/practice-background.jpg',
+        'backgroundImageAlt' => 'Law office library',
+        'scaleImageUrl'      => 'https://example.test/practice-scale.png',
+        'scaleImageAlt'      => 'Scales of justice',
+    ],
+    'innerBlocks'  => $practice_children,
+    'innerHTML'    => '',
+    'innerContent' => array_fill(0, count($practice_children), null),
+];
+$practice_serialized = serialize_block($practice_block);
+$practice_parsed = parse_blocks($practice_serialized);
+goetz_site_integration_assert(
+    count($practice_parsed) === 1
+        && ($practice_parsed[0]['blockName'] ?? '') === 'goetz/practice-areas'
+        && count($practice_parsed[0]['innerBlocks'] ?? []) === 7
+        && serialize_blocks($practice_parsed) === $practice_serialized,
+    'Practice Areas InnerBlocks do not survive WordPress serialization unchanged.'
+);
+$practice_rendered = do_blocks($practice_serialized);
+goetz_site_integration_assert(substr_count($practice_rendered, '<section') === 1, 'Practice Areas must render exactly one section.');
+goetz_site_integration_assert(substr_count($practice_rendered, '<h2') === 1, 'Practice Areas must render exactly one H2.');
+goetz_site_integration_assert(substr_count($practice_rendered, '<ul') === 1, 'Practice Areas must render exactly one stable list wrapper.');
+goetz_site_integration_assert(substr_count($practice_rendered, '<li') === 7, 'Practice Areas must render all seven serialized children exactly once.');
+foreach ([
+    'wp-block-goetz-practice-areas',
+    'goetz-practice-areas',
+    'goetz-practice-list',
+    'Providing <strong>Trusted Advice</strong> in:bad()',
+    'https://example.test/practice-background.jpg',
+    'Law office library',
+    'https://example.test/practice-scale.png',
+    'Scales of justice',
+] as $needle) {
+    goetz_site_integration_assert(str_contains($practice_rendered, $needle), "Practice Areas output changed: {$needle}");
+}
+goetz_site_integration_assert(! str_contains($practice_rendered, '<script'), 'Practice Areas heading allowlist is too broad.');
+foreach ($practice_labels as $label) {
+    goetz_site_integration_assert(
+        substr_count($practice_rendered, '>' . $label . '</b>') === 1,
+        "Practice Area child was lost or duplicated: {$label}"
+    );
+}
+
+$unsafe_practice_child = do_blocks(serialize_block([
+    'blockName'    => 'goetz/practice-areas',
+    'attrs'        => [],
+    'innerBlocks'  => [[
+        'blockName'    => 'goetz/practice-area-item',
+        'attrs'        => ['label' => '<em>Plain label</em><script>bad()</script>'],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ]],
+    'innerHTML'    => '',
+    'innerContent' => [null],
+]));
+goetz_site_integration_assert(
+    ! str_contains($unsafe_practice_child, '<em>')
+        && ! str_contains($unsafe_practice_child, '<script>')
+        && str_contains($unsafe_practice_child, '&lt;em&gt;Plain label&lt;/em&gt;&lt;script&gt;bad()&lt;/script&gt;'),
+    'Practice Area child label is not escaped as plain text.'
 );
 
 $attorney = render_block([
@@ -646,6 +770,43 @@ try {
     goetz_site_integration_assert(
         preg_match('/sizes="(?:auto, )?\(min-width: 601px\) 20vw, 85vw"/', $welcome_attachment) === 1,
         'Welcome responsive attachment sizes changed.'
+    );
+
+    $practice_attachment = do_blocks(serialize_block([
+        'blockName'    => 'goetz/practice-areas',
+        'attrs'        => [
+            'backgroundImageId'  => $attachment_id,
+            'backgroundImageUrl' => 'https://example.test/ignored-practice-background.jpg',
+            'backgroundImageAlt' => 'Attachment-first practice background',
+            'scaleImageId'       => $attachment_id,
+            'scaleImageUrl'      => 'https://example.test/ignored-practice-scale.jpg',
+            'scaleImageAlt'      => 'Attachment-first practice scale',
+        ],
+        'innerBlocks'  => [[
+            'blockName'    => 'goetz/practice-area-item',
+            'attrs'        => ['label' => 'Attachment Practice'],
+            'innerBlocks'  => [],
+            'innerHTML'    => '',
+            'innerContent' => [],
+        ]],
+        'innerHTML'    => '',
+        'innerContent' => [null],
+    ]));
+    goetz_site_integration_assert(
+        substr_count($practice_attachment, esc_url($attachment_url)) >= 2,
+        'Practice Areas did not prefer both parent-provided image attachment IDs.'
+    );
+    goetz_site_integration_assert(
+        ! str_contains($practice_attachment, 'ignored-practice-background.jpg')
+            && ! str_contains($practice_attachment, 'ignored-practice-scale.jpg'),
+        'Practice Areas did not suppress stored URL fallbacks for valid attachments.'
+    );
+    foreach (['Attachment-first practice background', 'Attachment-first practice scale'] as $needle) {
+        goetz_site_integration_assert(str_contains($practice_attachment, $needle), "Practice Areas responsive attachment output changed: {$needle}");
+    }
+    goetz_site_integration_assert(
+        preg_match('/sizes="(?:auto, )?36px"/', $practice_attachment) === 1,
+        'Practice Areas scale attachment sizes changed.'
     );
 
     $welcome_invalid_attachment = render_block([

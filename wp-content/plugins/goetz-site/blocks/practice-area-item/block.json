@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "goetz/practice-area-item",
+  "title": "Goetz Practice Area",
+  "category": "theme",
+  "icon": "marker",
+  "description": "One editable Practice Areas list item.",
+  "textdomain": "goetz-site",
+  "attributes": {
+    "label": { "type": "string", "default": "" }
+  },
+  "parent": ["goetz/practice-areas"],
+  "usesContext": [
+    "goetz/scaleImageId",
+    "goetz/scaleImageUrl",
+    "goetz/scaleImageAlt"
+  ],
+  "supports": { "html": false, "inserter": false },
+  "editorScript": "goetz-site-block-editor",
+  "style": "file:./style.css",
+  "render": "file:./render.php"
+}

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "goetz/practice-areas",
+  "title": "Goetz Practice Areas",
+  "category": "theme",
+  "icon": "editor-ul",
+  "description": "Homepage practice areas with editable, reorderable child items.",
+  "textdomain": "goetz-site",
+  "attributes": {
+    "heading": { "type": "string", "default": "Providing <strong>Legal Advice</strong> in:" },
+    "backgroundImageId": { "type": "number", "default": 0 },
+    "backgroundImageUrl": { "type": "string", "default": "" },
+    "backgroundImageAlt": { "type": "string", "default": "" },
+    "scaleImageId": { "type": "number", "default": 0 },
+    "scaleImageUrl": { "type": "string", "default": "" },
+    "scaleImageAlt": { "type": "string", "default": "" }
+  },
+  "providesContext": {
+    "goetz/scaleImageId": "scaleImageId",
+    "goetz/scaleImageUrl": "scaleImageUrl",
+    "goetz/scaleImageAlt": "scaleImageAlt"
+  },
+  "supports": { "html": false },
+  "editorScript": "goetz-site-block-editor",
+  "style": "file:./style.css",
+  "viewScript": "file:./view.js",
+  "render": "file:./render.php"
+}

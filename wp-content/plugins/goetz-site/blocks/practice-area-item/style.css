@@ -1,0 +1,43 @@
+.goetz-practice-area-item {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 36px minmax(0, 1fr);
+  list-style: none;
+  margin: 0;
+  min-width: 0;
+  opacity: 1;
+  transform: none;
+}
+
+.goetz-practice-area-item__scale {
+  align-items: center;
+  background: #fff;
+  border-radius: 999px;
+  color: #7951a9;
+  display: inline-flex;
+  height: 36px;
+  justify-content: center;
+  opacity: 1;
+  position: relative;
+  transform: scale(1);
+  width: 36px;
+  z-index: 1;
+}
+
+.goetz-practice-area-item__scale-image {
+  display: block;
+  height: 20px;
+  object-fit: contain;
+  width: 20px;
+}
+
+.goetz-practice-area-item__label {
+  color: #fff;
+  font-family: Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: clamp(16px, 4.8vw, 18px);
+  font-weight: 700;
+  line-height: 1.35;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
