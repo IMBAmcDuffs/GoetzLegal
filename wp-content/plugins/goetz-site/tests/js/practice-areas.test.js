@@ -59,7 +59,7 @@ const expectedItems = [
 ];
 
 describe('Practice Areas InnerBlocks API', () => {
-  test('declares the exact parent and child metadata contracts', () => {
+  test('keeps the child parent-restricted while enabling its nested inserter', () => {
     expect(parentMetadata).toEqual(expect.objectContaining({
       apiVersion: 3,
       name: 'goetz/practice-areas',
@@ -97,7 +97,7 @@ describe('Practice Areas InnerBlocks API', () => {
         'goetz/scaleImageUrl',
         'goetz/scaleImageAlt',
       ],
-      supports: { html: false, inserter: false },
+      supports: { html: false },
       editorScript: 'goetz-site-block-editor',
       render: 'file:./render.php',
       style: 'file:./style.css',

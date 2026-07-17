@@ -127,8 +127,13 @@ goetz_site_integration_assert(
     'Practice Area child ownership/context changed.'
 );
 goetz_site_integration_assert(
-    ($practice_item_type->supports['inserter'] ?? null) === false,
-    'Practice Area child must not be available in the free-standing inserter.'
+    ($practice_type->supports['html'] ?? null) === false
+        && ($practice_item_type->supports['html'] ?? null) === false,
+    'Practice Areas parent and child must keep Custom HTML disabled.'
+);
+goetz_site_integration_assert(
+    ! array_key_exists('inserter', $practice_item_type->supports),
+    'Practice Area child must leave insertion enabled inside its declared parent.'
 );
 $practice_view_handles = array_values(array_filter(
     $practice_type->view_script_handles,

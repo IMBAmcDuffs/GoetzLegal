@@ -202,6 +202,75 @@ async function completedState(page: Page) {
   });
 }
 
+test('Practice Areas editor appender adds and removes only a nested practice child', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.metadata.scope !== 'auth');
+  test.setTimeout(120_000);
+  page.setDefaultTimeout(8_000);
+  page.setDefaultNavigationTimeout(15_000);
+  requireLocalAuthenticatedProject(testInfo);
+
+  await withTemporaryDraft(page, async () => {
+    await waitForPracticeBlocks(page);
+    await resetToPracticeAreas(page);
+
+    const insertionPolicy = await page.evaluate(
+      ({ parent, child }) => {
+        const blockEditor = (globalThis as any).wp.data.select('core/block-editor');
+        const practice = blockEditor
+          .getBlocks()
+          .find((block: any) => block.name === parent);
+        return {
+          clientInserterDisabled:
+            (globalThis as any).wp.blocks.getBlockType(child)?.supports?.inserter === false,
+          nested: blockEditor.canInsertBlockType(child, practice.clientId),
+          nestedHasInserterItems: blockEditor.hasInserterItems(practice.clientId),
+          topLevel: blockEditor.canInsertBlockType(child, ''),
+        };
+      },
+      { parent: parentBlockName, child: childBlockName },
+    );
+    expect(insertionPolicy).toEqual({
+      clientInserterDisabled: false,
+      nested: true,
+      nestedHasInserterItems: true,
+      topLevel: false,
+    });
+
+    const canvas = await editorCanvas(page);
+    const practiceBlock = canvas.locator(`[data-type="${parentBlockName}"]`);
+    const childLabels = practiceBlock.getByLabel('Practice area label', {
+      exact: true,
+    });
+    await expect(childLabels).toHaveCount(7);
+    await childLabels.last().click();
+
+    await practiceBlock
+      .getByRole('button', { name: 'Add Goetz Practice Area', exact: true })
+      .click();
+    await expect(childLabels).toHaveCount(8);
+
+    const addedLabel = childLabels.last();
+    await addedLabel.click();
+    await addedLabel.pressSequentially('Employment');
+    await expect.poll(() => readPracticeState(page)).toMatchObject({
+      labels: [...labels, 'Employment'],
+    });
+
+    await addedLabel.press('Shift+Alt+Z');
+    await expect(childLabels).toHaveCount(7);
+    await expect.poll(() => readPracticeState(page)).toMatchObject({
+      labels,
+      valid: true,
+    });
+
+    await saveEditor(page);
+    const saved = await readPracticeState(page);
+    expect(saved.labels).toEqual(labels);
+    expect(saved.content.match(/wp:goetz\/practice-area-item/g)).toHaveLength(7);
+    expect(saved.content).not.toContain('Employment');
+  });
+});
+
 test('Practice Areas editor saves keyboard edits and child reorder through InnerBlocks', async ({ page }, testInfo) => {
   test.skip(testInfo.project.metadata.scope !== 'auth');
   test.setTimeout(120_000);

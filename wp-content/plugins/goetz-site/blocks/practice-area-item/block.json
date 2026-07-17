@@ -16,7 +16,7 @@
     "goetz/scaleImageUrl",
     "goetz/scaleImageAlt"
   ],
-  "supports": { "html": false, "inserter": false },
+  "supports": { "html": false },
   "editorScript": "goetz-site-block-editor",
   "style": "file:./style.css",
   "render": "file:./render.php"

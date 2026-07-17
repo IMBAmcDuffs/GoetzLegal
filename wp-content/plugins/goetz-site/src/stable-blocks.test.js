@@ -129,11 +129,7 @@ describe('stable Goetz blocks', () => {
       expect(metadata.attributes).toEqual(expectedAttributes[metadata.name]);
       expect(metadata.textdomain).toBe('goetz-site');
       expect(metadata.editorScript).toBe('goetz-site-block-editor');
-      expect(metadata.supports).toEqual(
-        metadata.name === 'goetz/practice-area-item'
-          ? { html: false, inserter: false }
-          : { html: false }
-      );
+      expect(metadata.supports).toEqual({ html: false });
     });
 
     const welcome = stableBlocks.find(({ name }) => name === 'goetz/welcome');
