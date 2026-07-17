@@ -70,18 +70,46 @@ const expectedAttributes = {
     imageAlt: { type: 'string', default: '' },
     imageId: { type: 'number', default: 0 },
   },
+  'goetz/welcome': {
+    leftImageId: { type: 'number', default: 0 },
+    leftImageUrl: { type: 'string', default: '' },
+    leftImageAlt: { type: 'string', default: '' },
+    rightImageId: { type: 'number', default: 0 },
+    rightImageUrl: { type: 'string', default: '' },
+    rightImageAlt: { type: 'string', default: '' },
+    heading: {
+      type: 'string',
+      default:
+        '<strong>Mr. Goetz welcomes</strong> you to browse this site to learn more about his firm and get information.',
+    },
+    contentPrefix: {
+      type: 'string',
+      default: 'If you would like to speak with Mr. Goetz, please call',
+    },
+    phoneLabel: { type: 'string', default: '' },
+    phoneUrl: { type: 'string', default: '' },
+    contentJoin: { type: 'string', default: 'or contact the firm' },
+    onlineLabel: { type: 'string', default: 'online' },
+    onlineUrl: { type: 'string', default: '' },
+  },
 };
 
 describe('stable Goetz blocks', () => {
-  test('keeps the permanent five-name registry and exact saved schemas', () => {
+  test('keeps the registered editor names and exact saved schemas', () => {
     expect(stableBlocks.map(({ name }) => name)).toEqual(Object.keys(expectedAttributes));
 
     stableBlocks.forEach((metadata) => {
+      expect(metadata.apiVersion).toBe(3);
       expect(metadata.attributes).toEqual(expectedAttributes[metadata.name]);
       expect(metadata.textdomain).toBe('goetz-site');
       expect(metadata.editorScript).toBe('goetz-site-block-editor');
       expect(metadata.supports).toEqual({ html: false });
     });
+
+    const welcome = stableBlocks.find(({ name }) => name === 'goetz/welcome');
+    expect(welcome.render).toBe('file:./render.php');
+    expect(welcome.style).toBe('file:./style.css');
+    expect(welcome).not.toHaveProperty('viewScript');
   });
 
   test('registers every stable dynamic block with its native editor', () => {
@@ -94,6 +122,6 @@ describe('stable Goetz blocks', () => {
       expect(settings.edit).toBeInstanceOf(Function);
       expect(settings.save()).toBeNull();
     });
-    expect(new Set(registrations.map(({ settings }) => settings.edit)).size).toBe(5);
+    expect(new Set(registrations.map(({ settings }) => settings.edit)).size).toBe(6);
   });
 });

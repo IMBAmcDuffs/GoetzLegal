@@ -12,6 +12,7 @@ export default defineConfig({
     'smoke.spec.ts',
     'settings.spec.ts',
     'gutenberg-existing-blocks.spec.ts',
+    'gutenberg-welcome-block.spec.ts',
   ],
   forbidOnly: true,
   retries: 0,

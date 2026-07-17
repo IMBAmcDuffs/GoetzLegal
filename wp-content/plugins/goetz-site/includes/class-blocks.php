@@ -22,6 +22,15 @@ final class Blocks
                 $asset['version'],
                 true
             );
+            wp_localize_script(
+                self::EDITOR_HANDLE,
+                'goetzSiteEditorSettings',
+                [
+                    'phoneLabel' => (string) \goetz_site_get_setting('phone_display', '(239) 936-2841'),
+                    'phoneUrl'   => 'tel:' . (string) \goetz_site_get_setting('phone_e164', '+12399362841'),
+                    'onlineUrl'  => '/contact/',
+                ]
+            );
             wp_set_script_translations(self::EDITOR_HANDLE, 'goetz-site');
         }
 

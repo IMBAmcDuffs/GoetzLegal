@@ -1,0 +1,29 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "goetz/welcome",
+  "title": "Goetz Welcome",
+  "category": "theme",
+  "icon": "welcome-view-site",
+  "description": "Homepage welcome section with two images and contact links.",
+  "textdomain": "goetz-site",
+  "attributes": {
+    "leftImageId": { "type": "number", "default": 0 },
+    "leftImageUrl": { "type": "string", "default": "" },
+    "leftImageAlt": { "type": "string", "default": "" },
+    "rightImageId": { "type": "number", "default": 0 },
+    "rightImageUrl": { "type": "string", "default": "" },
+    "rightImageAlt": { "type": "string", "default": "" },
+    "heading": { "type": "string", "default": "<strong>Mr. Goetz welcomes</strong> you to browse this site to learn more about his firm and get information." },
+    "contentPrefix": { "type": "string", "default": "If you would like to speak with Mr. Goetz, please call" },
+    "phoneLabel": { "type": "string", "default": "" },
+    "phoneUrl": { "type": "string", "default": "" },
+    "contentJoin": { "type": "string", "default": "or contact the firm" },
+    "onlineLabel": { "type": "string", "default": "online" },
+    "onlineUrl": { "type": "string", "default": "" }
+  },
+  "supports": { "html": false },
+  "editorScript": "goetz-site-block-editor",
+  "style": "file:./style.css",
+  "render": "file:./render.php"
+}

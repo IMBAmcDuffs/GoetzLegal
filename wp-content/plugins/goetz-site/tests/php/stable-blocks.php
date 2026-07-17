@@ -56,6 +56,67 @@ foreach ($expected as $name => $attribute_names) {
     );
 }
 
+$welcome_attribute_names = [
+    'leftImageId',
+    'leftImageUrl',
+    'leftImageAlt',
+    'rightImageId',
+    'rightImageUrl',
+    'rightImageAlt',
+    'heading',
+    'contentPrefix',
+    'phoneLabel',
+    'phoneUrl',
+    'contentJoin',
+    'onlineLabel',
+    'onlineUrl',
+];
+$welcome_type = $registry->get_registered('goetz/welcome');
+goetz_site_integration_assert($welcome_type instanceof WP_Block_Type, 'Missing plugin block registration: goetz/welcome');
+$welcome_registered_attribute_names = array_keys($welcome_type->attributes ?? []);
+$welcome_stable_attribute_names = array_values(array_intersect(
+    $welcome_registered_attribute_names,
+    $welcome_attribute_names
+));
+$welcome_unexpected_attribute_names = array_diff(
+    $welcome_registered_attribute_names,
+    $welcome_attribute_names,
+    ['lock', 'metadata', 'className']
+);
+goetz_site_integration_assert(
+    $welcome_stable_attribute_names === $welcome_attribute_names
+        && $welcome_unexpected_attribute_names === [],
+    'Saved attribute schema changed for goetz/welcome.'
+);
+goetz_site_integration_assert(
+    in_array('goetz-site-block-editor', $welcome_type->editor_script_handles, true),
+    'Shared editor handle is missing for goetz/welcome.'
+);
+goetz_site_integration_assert(
+    ($welcome_type->supports['html'] ?? null) === false,
+    'Custom HTML must remain disabled for goetz/welcome.'
+);
+goetz_site_integration_assert(
+    $welcome_type->view_script_handles === [],
+    'Welcome must remain fully visible without a frontend script.'
+);
+$editor_data = wp_scripts()->get_data('goetz-site-block-editor', 'data');
+$localized_settings_match = [];
+goetz_site_integration_assert(
+    is_string($editor_data)
+        && preg_match('/var goetzSiteEditorSettings = (\{.*\});/', $editor_data, $localized_settings_match) === 1,
+    'The editor bundle is missing its public Welcome fallback settings.'
+);
+$localized_settings = json_decode($localized_settings_match[1], true);
+goetz_site_integration_assert(
+    $localized_settings === [
+        'phoneLabel' => (string) goetz_site_get_setting('phone_display', '(239) 936-2841'),
+        'phoneUrl'   => 'tel:' . (string) goetz_site_get_setting('phone_e164', '+12399362841'),
+        'onlineUrl'  => '/contact/',
+    ],
+    'The editor bundle localized more than the effective public Welcome fallbacks.'
+);
+
 goetz_site_integration_assert(
     ! function_exists('goetz_legal_register_blocks'),
     'The theme still owns Gutenberg block registration.'
@@ -83,6 +144,176 @@ if (function_exists('goetz_legal_site_plugin_runtime_test')) {
         'The theme did not observe the booted plugin runtime.'
     );
 }
+
+$welcome_defaults = render_block([
+    'blockName'    => 'goetz/welcome',
+    'attrs'        => [],
+    'innerBlocks'  => [],
+    'innerHTML'    => '',
+    'innerContent' => [],
+]);
+goetz_site_integration_assert(substr_count($welcome_defaults, '<section') === 1, 'Welcome must render exactly one section.');
+goetz_site_integration_assert(substr_count($welcome_defaults, '<h2') === 1, 'Welcome must render exactly one H2.');
+goetz_site_integration_assert(substr_count($welcome_defaults, '<a ') === 2, 'Welcome must render exactly two links.');
+foreach (['goetz-welcome', 'goetz-intro-section', 'goetz-intro', '<strong>Mr. Goetz welcomes</strong>', '(239) 936-2841', 'href="tel:+12399362841"', 'href="/contact/"', '>online</a>', 'law-scale-icon-purple.png', 'alt=""', 'aria-hidden="true"'] as $needle) {
+    goetz_site_integration_assert(str_contains($welcome_defaults, $needle), "Welcome default output changed: {$needle}");
+}
+goetz_site_integration_assert(
+    ! str_contains($welcome_defaults, 'https://goetzlegal.com'),
+    'Welcome default output embeds the legacy source origin.'
+);
+goetz_site_integration_assert(
+    is_readable(WP_CONTENT_DIR . '/plugins/goetz-site/assets/seed/law-scale-icon-purple.png'),
+    'Welcome decorative scale asset is not tracked by the site plugin.'
+);
+goetz_site_integration_assert(
+    hash_file('sha256', WP_CONTENT_DIR . '/plugins/goetz-site/assets/seed/law-scale-icon-purple.png') === '53eade44aed3bacbb4bc00665c43811395ba91a1f1699f338c9e0a07a017cfd0',
+    'Welcome decorative scale asset hash changed.'
+);
+
+$site_settings_filter = static fn() => [
+    'phone_display' => '(239) 555-0188',
+    'phone_e164'    => '+12395550188',
+    'cta_url'       => '/custom-contact/',
+];
+add_filter('pre_option_goetz_site_settings', $site_settings_filter);
+try {
+    $welcome_settings_fallback = render_block([
+        'blockName'    => 'goetz/welcome',
+        'attrs'        => [
+            'phoneLabel' => '',
+            'phoneUrl'   => '',
+            'onlineUrl'  => '',
+        ],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ]);
+    $welcome_phone_label_override = render_block([
+        'blockName'    => 'goetz/welcome',
+        'attrs'        => [
+            'phoneLabel' => 'Direct office line',
+            'phoneUrl'   => '',
+        ],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ]);
+    $welcome_phone_url_override = render_block([
+        'blockName'    => 'goetz/welcome',
+        'attrs'        => [
+            'phoneLabel' => '',
+            'phoneUrl'   => '+12395550199',
+        ],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ]);
+    $welcome_online_label_override = render_block([
+        'blockName'    => 'goetz/welcome',
+        'attrs'        => [
+            'onlineLabel' => 'through our secure form',
+            'onlineUrl'   => '',
+        ],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ]);
+    $welcome_online_url_override = render_block([
+        'blockName'    => 'goetz/welcome',
+        'attrs'        => [
+            'onlineUrl' => '/alternate-contact/',
+        ],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ]);
+} finally {
+    remove_filter('pre_option_goetz_site_settings', $site_settings_filter);
+}
+foreach (['(239) 555-0188', 'href="tel:+12395550188"', 'href="/contact/"'] as $needle) {
+    goetz_site_integration_assert(str_contains($welcome_settings_fallback, $needle), "Welcome Site Settings fallback changed: {$needle}");
+}
+goetz_site_integration_assert(
+    ! str_contains($welcome_settings_fallback, 'href="/custom-contact/"'),
+    'Welcome empty online URL must not inherit the general Site Settings CTA URL.'
+);
+goetz_site_integration_assert(
+    str_contains($welcome_phone_label_override, '>Direct office line</a>')
+        && str_contains($welcome_phone_label_override, 'href="tel:+12395550188"'),
+    'Welcome phone label override did not retain the Site Settings phone URL fallback.'
+);
+goetz_site_integration_assert(
+    str_contains($welcome_phone_url_override, '>(239) 555-0188</a>')
+        && str_contains($welcome_phone_url_override, 'href="tel:+12395550199"'),
+    'Welcome phone URL override did not retain the Site Settings phone label fallback.'
+);
+goetz_site_integration_assert(
+    str_contains($welcome_online_label_override, '>through our secure form</a>')
+        && str_contains($welcome_online_label_override, 'href="/contact/"'),
+    'Welcome online label override did not retain the exact contact URL fallback.'
+);
+goetz_site_integration_assert(
+    str_contains($welcome_online_url_override, '>online</a>')
+        && str_contains($welcome_online_url_override, 'href="/alternate-contact/"'),
+    'Welcome online URL override did not retain the default online label.'
+);
+
+$welcome_overrides = render_block([
+    'blockName'    => 'goetz/welcome',
+    'attrs'        => [
+        'leftImageUrl' => 'https://example.test/welcome-left.jpg',
+        'leftImageAlt' => 'Left meaningful image',
+        'rightImageUrl'=> 'https://example.test/welcome-right.jpg',
+        'rightImageAlt'=> 'Right meaningful image',
+        'heading'      => '<strong>Safe</strong> <em>heading</em><script>bad()</script><a href="https://bad.example">bad link</a>',
+        'contentPrefix'=> '<strong>Plain prefix</strong>',
+        'phoneLabel'   => '<em>Custom phone</em>',
+        'phoneUrl'     => '+12395550199',
+        'contentJoin'  => '<b>Plain join</b>',
+        'onlineLabel'  => '<span>Plain online</span>',
+        'onlineUrl'    => 'https://example.test/contact',
+    ],
+    'innerBlocks'  => [],
+    'innerHTML'    => '',
+    'innerContent' => [],
+]);
+foreach (['https://example.test/welcome-left.jpg', 'Left meaningful image', 'https://example.test/welcome-right.jpg', 'Right meaningful image', '<strong>Safe</strong> <em>heading</em>bad()bad link', 'href="tel:+12395550199"', 'href="https://example.test/contact"'] as $needle) {
+    goetz_site_integration_assert(str_contains($welcome_overrides, $needle), "Welcome explicit override changed: {$needle}");
+}
+goetz_site_integration_assert(! str_contains($welcome_overrides, '<script'), 'Welcome heading allowlist is too broad.');
+goetz_site_integration_assert(! str_contains($welcome_overrides, '<h2><strong>Safe</strong> <em>heading</em>bad()<a'), 'Welcome heading allows links.');
+foreach (['<strong>Plain prefix</strong>', '<em>Custom phone</em>', '<b>Plain join</b>', '<span>Plain online</span>'] as $unsafe_plain_text) {
+    goetz_site_integration_assert(! str_contains($welcome_overrides, $unsafe_plain_text), "Welcome plain field allows markup: {$unsafe_plain_text}");
+}
+
+$welcome_rejected_urls = render_block([
+    'blockName'    => 'goetz/welcome',
+    'attrs'        => [
+        'phoneUrl' => 'javascript:alert(1)',
+        'onlineUrl'=> '//evil.example/path',
+    ],
+    'innerBlocks'  => [],
+    'innerHTML'    => '',
+    'innerContent' => [],
+]);
+goetz_site_integration_assert(! str_contains($welcome_rejected_urls, 'javascript:') && ! str_contains($welcome_rejected_urls, 'evil.example'), 'Welcome emitted a rejected URL.');
+goetz_site_integration_assert(str_contains($welcome_rejected_urls, 'href="tel:+12399362841"') && str_contains($welcome_rejected_urls, 'href="/contact/"'), 'Welcome rejected URLs did not fall back safely.');
+
+$welcome_empty_online_label = render_block([
+    'blockName'    => 'goetz/welcome',
+    'attrs'        => [
+        'onlineLabel' => '   ',
+        'onlineUrl'   => '/contact/',
+    ],
+    'innerBlocks'  => [],
+    'innerHTML'    => '',
+    'innerContent' => [],
+]);
+goetz_site_integration_assert(
+    str_contains($welcome_empty_online_label, '>online</a>'),
+    'Welcome empty online label must retain an accessible link name.'
+);
 
 $attorney = render_block([
     'blockName'    => 'goetz/attorney-card',
@@ -315,13 +546,13 @@ goetz_site_integration_assert(
 );
 
 $upload = wp_upload_bits(
-    'goetz-stable-block-' . wp_generate_uuid4() . '.png',
+    'goetz-stable-block-' . wp_generate_uuid4() . '.jpg',
     null,
-    base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true)
+    file_get_contents(WP_CONTENT_DIR . '/plugins/goetz-site/assets/seed/JAMES-L-2.jpg')
 );
 goetz_site_integration_assert(empty($upload['error']), 'Could not create the temporary block image fixture.');
 $attachment_id = wp_insert_attachment([
-    'post_mime_type' => 'image/png',
+    'post_mime_type' => 'image/jpeg',
     'post_title'     => 'Goetz stable block fixture',
     'post_status'    => 'inherit',
 ], $upload['file']);
@@ -349,7 +580,7 @@ try {
     ]);
     goetz_site_integration_assert(str_contains($hero_attachment, esc_url($attachment_url)), 'Hero did not prefer its image attachment ID.');
     goetz_site_integration_assert(! str_contains($hero_attachment, 'ignored-hero.jpg'), 'Hero did not suppress its URL fallback for a valid attachment.');
-    goetz_site_integration_assert(str_contains($hero_attachment, 'width="1"') && str_contains($hero_attachment, 'height="1"') && str_contains($hero_attachment, 'loading="eager"'), 'Hero attachment output lacks intrinsic dimensions or eager loading.');
+    goetz_site_integration_assert(str_contains($hero_attachment, 'width="910"') && str_contains($hero_attachment, 'height="660"') && str_contains($hero_attachment, 'loading="eager"'), 'Hero attachment output lacks intrinsic dimensions or eager loading.');
 
     $attorney_attachment = render_block([
         'blockName'    => 'goetz/attorney-card',
@@ -392,6 +623,48 @@ try {
     ]);
     goetz_site_integration_assert(str_contains($resource_attachment, esc_url($attachment_url)), 'Resource Links did not prefer its image attachment ID.');
     goetz_site_integration_assert(! str_contains($resource_attachment, 'aria-hidden="true"'), 'Resource Links informative image is hidden from assistive technology.');
+
+    $welcome_attachment = render_block([
+        'blockName'    => 'goetz/welcome',
+        'attrs'        => [
+            'leftImageId'   => $attachment_id,
+            'leftImageUrl'  => 'https://example.test/ignored-welcome-left.jpg',
+            'leftImageAlt'  => 'Attachment-first left image',
+            'rightImageId'  => $attachment_id,
+            'rightImageUrl' => 'https://example.test/ignored-welcome-right.jpg',
+            'rightImageAlt' => 'Attachment-first right image',
+        ],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ]);
+    goetz_site_integration_assert(substr_count($welcome_attachment, esc_url($attachment_url)) >= 2, 'Welcome did not prefer both image attachment IDs.');
+    goetz_site_integration_assert(! str_contains($welcome_attachment, 'ignored-welcome-left.jpg') && ! str_contains($welcome_attachment, 'ignored-welcome-right.jpg'), 'Welcome did not suppress stored URL fallbacks for valid attachments.');
+    foreach (['Attachment-first left image', 'Attachment-first right image', 'width="910"', 'height="660"', 'loading="lazy"', 'decoding="async"', 'srcset="'] as $needle) {
+        goetz_site_integration_assert(str_contains($welcome_attachment, $needle), "Welcome responsive attachment output changed: {$needle}");
+    }
+    goetz_site_integration_assert(
+        preg_match('/sizes="(?:auto, )?\(min-width: 601px\) 20vw, 85vw"/', $welcome_attachment) === 1,
+        'Welcome responsive attachment sizes changed.'
+    );
+
+    $welcome_invalid_attachment = render_block([
+        'blockName'    => 'goetz/welcome',
+        'attrs'        => [
+            'leftImageId'   => PHP_INT_MAX,
+            'leftImageUrl'  => 'https://example.test/welcome-left-fallback.jpg',
+            'leftImageAlt'  => 'Left fallback',
+            'rightImageId'  => PHP_INT_MAX,
+            'rightImageUrl' => 'https://example.test/welcome-right-fallback.jpg',
+            'rightImageAlt' => 'Right fallback',
+        ],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ]);
+    foreach (['welcome-left-fallback.jpg', 'Left fallback', 'welcome-right-fallback.jpg', 'Right fallback'] as $needle) {
+        goetz_site_integration_assert(str_contains($welcome_invalid_attachment, $needle), "Welcome invalid attachment fallback changed: {$needle}");
+    }
 
     $invalid_attachment_fallback = render_block([
         'blockName'    => 'goetz/hero',

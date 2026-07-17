@@ -11,7 +11,6 @@
     --goetz-muted: #5e5e5e;
     --goetz-width: 1180px;
     --goetz-wide: 1280px;
-    --goetz-intro-width: 1000px;
     --font-heading: "Roboto", "Helvetica Neue", Helvetica, Arial, sans-serif;
     --font-body: "Roboto", "Helvetica Neue", Helvetica, Arial, sans-serif;
     --font-ui: "Roboto", system-ui, sans-serif;
@@ -749,65 +748,6 @@ body {
     text-decoration: none !important;
 }
 
-.goetz-intro-section {
-    background: var(--goetz-light);
-    padding: 58px 1.5rem 202px;
-}
-
-.goetz-intro {
-    align-items: center;
-    display: grid;
-    gap: 2%;
-    grid-template-columns: minmax(150px, 1fr) minmax(0, 3fr) minmax(150px, 1fr);
-}
-
-.goetz-intro__image {
-    border: 2px solid var(--goetz-purple);
-    box-shadow: 0 2px 10px #909899;
-    height: 240px;
-    object-fit: cover;
-    width: 100%;
-}
-
-.goetz-intro__content {
-    margin-inline: auto;
-    max-width: 720px;
-    text-align: center;
-}
-
-.goetz-intro__content h2 {
-    color: var(--goetz-text);
-    font-size: clamp(1.45rem, 2.2vw, 2rem);
-    font-weight: 400;
-    letter-spacing: .02em;
-    line-height: 1.08;
-    margin: 0 0 18px;
-    text-transform: uppercase;
-}
-
-.goetz-intro__content h2 strong {
-    color: var(--goetz-purple);
-    font-weight: 700;
-}
-
-.goetz-intro__icon {
-    display: block;
-    height: 39px;
-    margin: 0 auto 18px;
-    width: 40px;
-}
-
-.goetz-intro__content p {
-    color: var(--goetz-text);
-    font-size: 14px;
-    margin: 0;
-}
-
-.goetz-intro__content a,
-.goetz-intro__content strong {
-    color: var(--goetz-purple);
-}
-
 .goetz-practice-band {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -1056,13 +996,6 @@ body {
     }
 }
 
-@media (min-width: 1048px) {
-    .goetz-intro-section {
-        padding-left: calc((100vw - var(--goetz-intro-width)) / 2);
-        padding-right: calc((100vw - var(--goetz-intro-width)) / 2);
-    }
-}
-
 @media (max-width: 1180px) {
     .site-navigation a {
         font-size: 14px;
@@ -1170,20 +1103,6 @@ body {
         border-top: 1px solid rgb(255 255 255 / 12%);
         line-height: 1.2;
         padding: .85rem 0;
-    }
-
-    .goetz-intro {
-        grid-template-columns: 1fr;
-    }
-
-    .goetz-intro-section {
-        padding-bottom: 70px;
-    }
-
-    .goetz-intro__image {
-        height: 220px;
-        margin-inline: auto;
-        max-width: 320px;
     }
 
     .goetz-contact-page__canvas {
