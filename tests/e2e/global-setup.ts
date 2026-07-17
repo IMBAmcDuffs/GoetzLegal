@@ -1,6 +1,7 @@
 import { chromium, type FullConfig } from '@playwright/test';
 import path from 'node:path';
 import { runAuthenticatedSetup } from './helpers/auth-setup.mjs';
+import { resolveAuthenticatedExpectedOrigin } from './helpers/auth-login.mjs';
 
 function isLoopback(url: URL): boolean {
   return ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
@@ -25,6 +26,10 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
 
   const storageState = process.env.GOETZ_AUTH_STATE_PATH ||
     path.resolve('../../__dev/playwright/auth-state/auth-state.json');
+  const expectedOrigin = resolveAuthenticatedExpectedOrigin(
+    baseURL.toString(),
+    process.env.GOETZ_EXPECT_ORIGIN,
+  );
 
   await runAuthenticatedSetup({
     browserType: chromium,
@@ -32,7 +37,7 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
     storageState,
     login: {
       loginURL: new URL('/wp-login.php', baseURL).toString(),
-      expectedOrigin: process.env.GOETZ_EXPECT_ORIGIN || baseURL.origin,
+      expectedOrigin,
       username,
       password,
     },

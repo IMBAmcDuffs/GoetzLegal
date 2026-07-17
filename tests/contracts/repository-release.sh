@@ -451,12 +451,16 @@ assert_public_browser_environment() {
 run_browser_fixture() {
   local command="$1"
   shift
+  local expected_origin='https://caller-origin.invalid'
+  if [[ "$command" == 'test:e2e:auth' ]]; then
+    expected_origin='https://caller-base.invalid'
+  fi
 
   /usr/bin/env -i \
     HOME="$fixture/home" \
     PATH="$fixture/bin:/usr/bin:/bin" \
     GOETZ_BASE_URL=https://caller-base.invalid \
-    GOETZ_EXPECT_ORIGIN=https://caller-origin.invalid \
+    GOETZ_EXPECT_ORIGIN="$expected_origin" \
     GOETZ_EXPECT_PRODUCTION=caller-production \
     GOETZ_E2E_ALLOW_REMOTE=1 \
     GOETZ_E2E_USER=caller-user \
@@ -472,7 +476,7 @@ assert_no_browser_environment "$fixture/bin/docker-record.2"
 auth_record="$fixture/bin/docker-record.3"
 grep -Fqx 'GOETZ_BASE_URL=https://caller-base.invalid' "$auth_record" ||
   fail 'authenticated browser invocation did not receive caller base URL'
-grep -Fqx 'GOETZ_EXPECT_ORIGIN=https://caller-origin.invalid' "$auth_record" ||
+grep -Fqx 'GOETZ_EXPECT_ORIGIN=https://caller-base.invalid' "$auth_record" ||
   fail 'authenticated browser invocation did not receive caller expected origin'
 grep -Fqx 'GOETZ_EXPECT_PRODUCTION=caller-production' "$auth_record" ||
   fail 'authenticated browser invocation did not receive caller production expectation'
@@ -549,6 +553,116 @@ if /usr/bin/env -i \
 fi
 [[ ! -e "$fixture/bin/docker-record" ]] ||
   fail 'authenticated URL validation invoked Docker before rejecting a non-loopback authority'
+
+reset_fake_docker
+mixed_auth_output="$fixture/mixed-auth-output"
+if /usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  GOETZ_BASE_URL=http://localhost:18080 \
+  GOETZ_EXPECT_ORIGIN=https://redirect.invalid \
+  /bin/bash "$fixture/manager.sh" test:e2e:auth >"$mixed_auth_output" 2>&1; then
+  fail 'local authenticated base accepted a remote expected origin'
+fi
+[[ ! -e "$fixture/bin/docker-record" ]] ||
+  fail 'mixed authenticated origins invoked Docker before rejection'
+for forbidden in 'http://localhost:18080' 'https://redirect.invalid' never-export-admin never-export-admin-password; do
+  ! grep -Fq "$forbidden" "$mixed_auth_output" ||
+    fail 'mixed authenticated origin rejection disclosed sensitive context'
+done
+
+reset_fake_docker
+if /usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  GOETZ_BASE_URL=https://caller-base.invalid \
+  GOETZ_EXPECT_ORIGIN=https://other-remote.invalid \
+  GOETZ_E2E_ALLOW_REMOTE=1 \
+  GOETZ_E2E_USER=caller-user \
+  GOETZ_E2E_PASSWORD=caller-password \
+  /bin/bash "$fixture/manager.sh" test:e2e:auth >/dev/null 2>&1; then
+  fail 'authenticated browser accepted a different remote expected origin'
+fi
+[[ ! -e "$fixture/bin/docker-record" ]] ||
+  fail 'different authenticated origins invoked Docker before rejection'
+
+reset_fake_docker
+/usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  GOETZ_BASE_URL=HTTPS://CALLER-BASE.INVALID:443/subpath \
+  GOETZ_EXPECT_ORIGIN=https://caller-base.invalid \
+  GOETZ_E2E_ALLOW_REMOTE=1 \
+  GOETZ_E2E_USER=caller-user \
+  GOETZ_E2E_PASSWORD=caller-password \
+  /bin/bash "$fixture/manager.sh" test:e2e:auth ||
+  fail 'authenticated origin comparison did not normalize scheme, host, and default port'
+grep -Fq '<playwright-auth>' "$fixture/bin/docker-record.3" ||
+  fail 'canonical remote authenticated origin did not use the remote service'
+
+for malformed_expected in \
+  'http://synthetic-user@localhost:18080' \
+  'http://localhost:99999' \
+  'http://[::::]:18080' \
+  'http://[127.0.0.1]:18080' \
+  'http://[12345::1]:18080'; do
+  reset_fake_docker
+  if /usr/bin/env -i \
+    HOME="$fixture/home" \
+    PATH="$fixture/bin:/usr/bin:/bin" \
+    GOETZ_BASE_URL=http://localhost:18080 \
+    GOETZ_EXPECT_ORIGIN="$malformed_expected" \
+    /bin/bash "$fixture/manager.sh" test:e2e:auth >/dev/null 2>&1; then
+    fail 'authenticated browser accepted userinfo or a malformed expected origin'
+  fi
+  [[ ! -e "$fixture/bin/docker-record" ]] ||
+    fail 'malformed authenticated expected origin invoked Docker before rejection'
+done
+
+for malformed_base in \
+  'http://[::::]:18080' \
+  'http://[127.0.0.1]:18080' \
+  'http://[12345::1]:18080'; do
+  reset_fake_docker
+  if /usr/bin/env -i \
+    HOME="$fixture/home" \
+    PATH="$fixture/bin:/usr/bin:/bin" \
+    GOETZ_BASE_URL="$malformed_base" \
+    /bin/bash "$fixture/manager.sh" test:public >/dev/null 2>&1; then
+    fail 'public browser accepted a malformed bracketed base URL'
+  fi
+  [[ ! -e "$fixture/bin/docker-record" ]] ||
+    fail 'malformed public base URL invoked Docker before rejection'
+done
+
+reset_fake_docker
+/usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  GOETZ_BASE_URL='http://[::1]:18080' \
+  /bin/bash "$fixture/manager.sh" test:public ||
+  fail 'supported bracketed IPv6 loopback URL was rejected'
+grep -Fq '<playwright-local>' "$fixture/bin/docker-record.3" ||
+  fail 'bracketed IPv6 loopback did not select the local-only browser service'
+
+for public_command in test:public test:capture; do
+  for mixed_pair in \
+    'http://localhost:18080 https://redirect.invalid' \
+    'https://caller-base.invalid http://127.0.0.1:18080'; do
+    read -r mixed_base mixed_expected <<< "$mixed_pair"
+    reset_fake_docker
+    if /usr/bin/env -i \
+      HOME="$fixture/home" \
+      PATH="$fixture/bin:/usr/bin:/bin" \
+      GOETZ_BASE_URL="$mixed_base" \
+      GOETZ_EXPECT_ORIGIN="$mixed_expected" \
+      /bin/bash "$fixture/manager.sh" "$public_command" >/dev/null 2>&1; then
+      fail "$public_command accepted mixed local/remote base and expected origins"
+    fi
+    [[ ! -e "$fixture/bin/docker-record" ]] ||
+      fail "$public_command mixed-origin validation invoked Docker before rejection"
+  done
+done
 
 reset_fake_docker
 /usr/bin/env -i \

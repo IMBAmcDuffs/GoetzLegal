@@ -337,9 +337,87 @@ e2e_install() {
   compose run --rm -w /work/e2e playwright-installer npx playwright install --with-deps chromium
 }
 
-is_local_test_url() {
+canonical_http_origin() {
   local url="$1"
-  [[ "$url" =~ ^https?://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]+)?([/?#]|$) ]]
+  local scheme
+  local authority
+  local host
+  local port=''
+  local port_number
+
+  if [[ "$url" =~ ^([Hh][Tt][Tt][Pp][Ss]?)://([^/?#]+)([/?#].*)?$ ]]; then
+    scheme="${BASH_REMATCH[1],,}"
+    authority="${BASH_REMATCH[2]}"
+  else
+    return 1
+  fi
+
+  [[ "$authority" != *@* ]] || return 1
+  if [[ "$authority" =~ ^\[([0-9A-Fa-f:.]+)\](:([0-9]+))?$ ]]; then
+    [[ "${BASH_REMATCH[1],,}" == '::1' ]] || return 1
+    host='[::1]'
+    port="${BASH_REMATCH[3]-}"
+  elif [[ "$authority" =~ ^([A-Za-z0-9._~-]+)(:([0-9]+))?$ ]]; then
+    host="${BASH_REMATCH[1],,}"
+    port="${BASH_REMATCH[3]-}"
+  else
+    return 1
+  fi
+
+  if [[ -n "$port" ]]; then
+    (( ${#port} <= 5 )) || return 1
+    port_number=$((10#$port))
+    (( port_number >= 1 && port_number <= 65535 )) || return 1
+    if [[ ( "$scheme" == 'http' && "$port_number" -eq 80 ) ||
+      ( "$scheme" == 'https' && "$port_number" -eq 443 ) ]]; then
+      port=''
+    else
+      port=":${port_number}"
+    fi
+  fi
+
+  printf '%s://%s%s\n' "$scheme" "$host" "$port"
+}
+
+is_local_test_url() {
+  local origin
+  origin="$(canonical_http_origin "$1")" || return 1
+  [[ "$origin" =~ ^https?://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]+)?$ ]]
+}
+
+validate_browser_origin_policy() {
+  local base_url="$1"
+  local authenticated="$2"
+  local base_origin
+  local expected_origin
+  local base_local='no'
+  local expected_local='no'
+
+  base_origin="$(canonical_http_origin "$base_url")" || {
+    echo 'Browser test URL validation failed.' >&2
+    return 2
+  }
+
+  [[ -n "$CALLER_GOETZ_EXPECT_ORIGIN_SET" ]] || return 0
+  expected_origin="$(canonical_http_origin "$CALLER_GOETZ_EXPECT_ORIGIN")" || {
+    echo 'Browser expected-origin validation failed.' >&2
+    return 2
+  }
+
+  if [[ "$authenticated" == 'yes' ]]; then
+    [[ "$expected_origin" == "$base_origin" ]] || {
+      echo 'Authenticated browser origins must match.' >&2
+      return 2
+    }
+    return 0
+  fi
+
+  is_local_test_url "$base_origin" && base_local='yes'
+  is_local_test_url "$expected_origin" && expected_local='yes'
+  [[ "$base_local" == "$expected_local" ]] || {
+    echo 'Public browser origins must use the same locality.' >&2
+    return 2
+  }
 }
 
 readonly PLAYWRIGHT_WORK_DIR="${ROOT_DIR}/__dev/playwright"
@@ -414,6 +492,8 @@ run_playwright() {
   else
     base_url="${WP_URL:-http://localhost:${WP_PORT:-8080}}"
   fi
+
+  validate_browser_origin_policy "$base_url" "$authenticated" || return
 
   local username=''
   local password=''
