@@ -34,6 +34,8 @@ set +a
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/.env"
 unset SSH_KEY_PW
+unset GOETZ_BASE_URL GOETZ_EXPECT_ORIGIN GOETZ_EXPECT_PRODUCTION
+unset GOETZ_E2E_ALLOW_REMOTE GOETZ_E2E_USER GOETZ_E2E_PASSWORD
 
 docker_cli() {
   local -a clean_env=(
@@ -94,6 +96,10 @@ wp() {
 }
 
 start() {
+  (( $# == 0 )) || {
+    echo 'start does not accept additional arguments.' >&2
+    return 2
+  }
   need_docker
   compose up -d db wordpress wpcli
   printf 'WordPress: %s\n' "${WP_URL:-http://localhost:${WP_PORT:-8080}}"
@@ -113,26 +119,74 @@ wait_for_wordpress_files() {
 }
 
 stop() {
+  (( $# == 0 )) || {
+    echo 'stop does not accept additional arguments.' >&2
+    return 2
+  }
   need_docker
   compose stop
 }
 
+restart_services() {
+  (( $# == 0 )) || {
+    echo 'restart does not accept additional arguments.' >&2
+    return 2
+  }
+  stop
+  start
+}
+
+logs_command() {
+  (( $# <= 1 )) || {
+    echo 'logs accepts at most one service name.' >&2
+    return 2
+  }
+  need_docker
+  compose logs -f "${1:-wordpress}"
+}
+
+shell_command() {
+  (( $# == 0 )) || {
+    echo 'shell does not accept additional arguments.' >&2
+    return 2
+  }
+  need_docker
+  compose exec wordpress bash
+}
+
+db_shell() {
+  (( $# == 0 )) || {
+    echo 'db does not accept additional arguments.' >&2
+    return 2
+  }
+  need_docker
+  compose exec db mariadb \
+    -u"${MYSQL_USER:-wordpress}" \
+    -p"${MYSQL_PASSWORD:-wordpress}" \
+    "${MYSQL_DATABASE:-wordpress}"
+}
+
 install_locked_dependencies() {
   need_docker
-  compose run --rm -w /app composer composer install --no-dev --prefer-dist --classmap-authoritative --no-interaction --no-progress
-  compose run --rm -w /app/wp-content/themes/goetz-legal composer composer install --no-dev --prefer-dist --classmap-authoritative --no-interaction --no-progress
+  mkdir -p "${ROOT_DIR}/vendor"
+  compose run --rm -w /work composer composer install --no-dev --prefer-dist --classmap-authoritative --no-interaction --no-progress
+  compose run --rm -w /work/wp-content/themes/goetz-legal composer composer install --no-dev --prefer-dist --classmap-authoritative --no-interaction --no-progress
 }
 
 build_locked_theme() {
   need_docker
-  compose run --rm -w /app/wp-content/themes/goetz-legal node npm ci
-  compose run --rm -w /app/wp-content/themes/goetz-legal node npm run build
+  compose run --rm -w /work/theme node npm ci
+  compose run --rm -w /work/theme node npm run build
 }
 
 build_locked_site() {
+  if [[ ! -f "${ROOT_DIR}/wp-content/plugins/goetz-site/src/index.js" ]]; then
+    echo 'No goetz-site block entrypoint is present yet; skipping the editor asset build.'
+    return 0
+  fi
   need_docker
-  compose run --rm -w /app/wp-content/plugins/goetz-site node npm ci
-  compose run --rm -w /app/wp-content/plugins/goetz-site node npm run build
+  compose run --rm -w /work/site node npm ci
+  compose run --rm -w /work/site node npm run build
 }
 
 deps_install() {
@@ -142,11 +196,15 @@ deps_install() {
   }
 
   install_locked_dependencies
-  compose run --rm -w /app/wp-content/themes/goetz-legal node npm ci
-  compose run --rm -w /app/wp-content/plugins/goetz-site node npm ci
+  compose run --rm -w /work/theme node npm ci
+  compose run --rm -w /work/site node npm ci
 }
 
 install_site() {
+  (( $# == 0 )) || {
+    echo 'install does not accept additional arguments.' >&2
+    return 2
+  }
   start
   wait_for_wordpress_files
 
@@ -185,8 +243,8 @@ theme_build() {
 
 theme_dev() {
   need_docker
-  compose run --rm --service-ports -w /app/wp-content/themes/goetz-legal node npm ci
-  compose run --rm --service-ports -w /app/wp-content/themes/goetz-legal node npm run dev -- "$@"
+  compose run --rm --service-ports -w /work/theme node npm ci
+  compose run --rm --service-ports -w /work/theme node npm run dev -- "$@"
 }
 
 site_build() {
@@ -199,8 +257,10 @@ site_build() {
 
 phpunit_test() {
   need_docker
-  compose run --rm -w /app composer composer install --prefer-dist --no-interaction --no-progress
-  compose run --rm -w /app composer vendor/bin/phpunit "$@"
+  mkdir -p "${ROOT_DIR}/vendor"
+  compose run --rm -w /work composer composer install --prefer-dist --no-interaction --no-progress
+  compose run --rm -w /work composer \
+    vendor/bin/phpunit --cache-result-file /work/vendor/.phpunit.result.cache "$@"
 }
 
 site_test() {
@@ -213,8 +273,8 @@ site_test() {
   done
   (( has_run_in_band == 1 )) || test_args=(--runInBand "${test_args[@]}")
 
-  compose run --rm -w /app/wp-content/plugins/goetz-site node npm ci
-  compose run --rm -w /app/wp-content/plugins/goetz-site node npm run test:unit -- "${test_args[@]}"
+  compose run --rm -w /work/site node npm ci
+  compose run --rm -w /work/site node npm run test:unit -- "${test_args[@]}"
 }
 
 test_unit() {
@@ -272,29 +332,53 @@ e2e_install() {
     return 2
   }
   need_docker
-  compose run --rm -w /app/tests/e2e playwright npm ci
-  compose run --rm -w /app/tests/e2e playwright npx playwright install --with-deps chromium
+  prepare_playwright_paths
+  compose run --rm -w /work/e2e playwright npm ci
+  compose run --rm -w /work/e2e playwright-installer npx playwright install --with-deps chromium
 }
 
 is_local_test_url() {
   local url="$1"
-  [[ "$url" =~ ^https?://(localhost|127\.0\.0\.1|\[::1\])([:/]|$) ]]
+  [[ "$url" =~ ^https?://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]+)?([/?#]|$) ]]
 }
 
-run_playwright() {
+readonly PLAYWRIGHT_WORK_DIR="${ROOT_DIR}/__dev/playwright"
+readonly PLAYWRIGHT_STATE_DIR="${PLAYWRIGHT_WORK_DIR}/auth-state"
+readonly PLAYWRIGHT_AUTH_STATE="${PLAYWRIGHT_STATE_DIR}/auth-state.json"
+readonly PLAYWRIGHT_LEGACY_AUTH_STATE="${PLAYWRIGHT_WORK_DIR}/auth-state.json"
+readonly PLAYWRIGHT_AUTH_MODULES="${PLAYWRIGHT_WORK_DIR}/auth-node-modules"
+readonly PLAYWRIGHT_PUBLIC_MODULES="${PLAYWRIGHT_WORK_DIR}/public-node-modules"
+readonly PLAYWRIGHT_AUTH_ARTIFACTS="${ROOT_DIR}/artifacts/playwright/auth"
+readonly PLAYWRIGHT_PUBLIC_ARTIFACTS="${ROOT_DIR}/artifacts/playwright/public"
+
+cleanup_playwright_auth_state() {
+  rm -f -- "$PLAYWRIGHT_AUTH_STATE" "${PLAYWRIGHT_AUTH_STATE}.tmp."*
+  rm -f -- "$PLAYWRIGHT_LEGACY_AUTH_STATE" "${PLAYWRIGHT_LEGACY_AUTH_STATE}.tmp."*
+}
+
+prepare_playwright_paths() {
+  mkdir -p \
+    "$PLAYWRIGHT_STATE_DIR" \
+    "$PLAYWRIGHT_AUTH_MODULES" \
+    "$PLAYWRIGHT_PUBLIC_MODULES" \
+    "$PLAYWRIGHT_AUTH_ARTIFACTS" \
+    "$PLAYWRIGHT_PUBLIC_ARTIFACTS"
+  chmod 0700 \
+    "$PLAYWRIGHT_STATE_DIR" \
+    "$PLAYWRIGHT_AUTH_MODULES" \
+    "$PLAYWRIGHT_AUTH_ARTIFACTS"
+}
+
+invoke_playwright_child() {
   local script="$1"
   local authenticated="$2"
-  shift 2
+  local base_url="$3"
+  local username="$4"
+  local password="$5"
+  shift 5
 
-  need_docker
-
-  local GOETZ_BASE_URL
-  if [[ -n "$CALLER_GOETZ_BASE_URL_SET" ]]; then
-    GOETZ_BASE_URL="$CALLER_GOETZ_BASE_URL"
-  else
-    GOETZ_BASE_URL="${WP_URL:-http://localhost:${WP_PORT:-8080}}"
-  fi
-
+  local playwright_service='playwright'
+  local GOETZ_BASE_URL="$base_url"
   local -a environment_args=(-e GOETZ_BASE_URL)
   if [[ -n "$CALLER_GOETZ_EXPECT_ORIGIN_SET" ]]; then
     local GOETZ_EXPECT_ORIGIN="$CALLER_GOETZ_EXPECT_ORIGIN"
@@ -306,25 +390,9 @@ run_playwright() {
   fi
 
   if [[ "$authenticated" == 'yes' ]]; then
-    if ! is_local_test_url "$GOETZ_BASE_URL"; then
-      [[ -n "$CALLER_GOETZ_E2E_ALLOW_REMOTE_SET" && "$CALLER_GOETZ_E2E_ALLOW_REMOTE" == '1' ]] || {
-        echo 'Remote authenticated tests require GOETZ_E2E_ALLOW_REMOTE=1.' >&2
-        return 2
-      }
-    fi
-
-    local GOETZ_E2E_USER
-    local GOETZ_E2E_PASSWORD
-    if [[ -n "$CALLER_GOETZ_E2E_USER_SET" ]]; then
-      GOETZ_E2E_USER="$CALLER_GOETZ_E2E_USER"
-    else
-      GOETZ_E2E_USER="${WP_ADMIN_USER:-admin}"
-    fi
-    if [[ -n "$CALLER_GOETZ_E2E_PASSWORD_SET" ]]; then
-      GOETZ_E2E_PASSWORD="$CALLER_GOETZ_E2E_PASSWORD"
-    else
-      GOETZ_E2E_PASSWORD="${WP_ADMIN_PASSWORD:-admin}"
-    fi
+    playwright_service='playwright-auth'
+    local GOETZ_E2E_USER="$username"
+    local GOETZ_E2E_PASSWORD="$password"
     environment_args+=(-e GOETZ_E2E_USER -e GOETZ_E2E_PASSWORD)
 
     if [[ -n "$CALLER_GOETZ_E2E_ALLOW_REMOTE_SET" ]]; then
@@ -333,8 +401,64 @@ run_playwright() {
     fi
   fi
 
-  compose run --rm -w /app/tests/e2e playwright npm ci
-  compose run --rm -w /app/tests/e2e "${environment_args[@]}" playwright npm run "$script" -- "$@"
+  compose run --rm -w /work/e2e "${environment_args[@]}" "$playwright_service" npm run "$script" -- "$@"
+}
+
+run_playwright() {
+  local script="$1"
+  local authenticated="$2"
+  shift 2
+
+  local base_url
+  if [[ -n "$CALLER_GOETZ_BASE_URL_SET" ]]; then
+    base_url="$CALLER_GOETZ_BASE_URL"
+  else
+    base_url="${WP_URL:-http://localhost:${WP_PORT:-8080}}"
+  fi
+
+  local username=''
+  local password=''
+  if [[ "$authenticated" == 'yes' ]]; then
+    if is_local_test_url "$base_url"; then
+      if [[ -n "$CALLER_GOETZ_E2E_USER_SET" ]]; then
+        username="$CALLER_GOETZ_E2E_USER"
+      else
+        username="${WP_ADMIN_USER:-admin}"
+      fi
+      if [[ -n "$CALLER_GOETZ_E2E_PASSWORD_SET" ]]; then
+        password="$CALLER_GOETZ_E2E_PASSWORD"
+      else
+        password="${WP_ADMIN_PASSWORD:-admin}"
+      fi
+    else
+      [[ -n "$CALLER_GOETZ_E2E_ALLOW_REMOTE_SET" && "$CALLER_GOETZ_E2E_ALLOW_REMOTE" == '1' ]] || {
+        echo 'Remote authenticated tests require GOETZ_E2E_ALLOW_REMOTE=1.' >&2
+        return 2
+      }
+      [[ -n "$CALLER_GOETZ_E2E_USER_SET" && -n "$CALLER_GOETZ_E2E_USER" &&
+        -n "$CALLER_GOETZ_E2E_PASSWORD_SET" && -n "$CALLER_GOETZ_E2E_PASSWORD" ]] || {
+        echo 'Remote authenticated tests require explicit caller credentials.' >&2
+        return 2
+      }
+      username="$CALLER_GOETZ_E2E_USER"
+      password="$CALLER_GOETZ_E2E_PASSWORD"
+    fi
+  fi
+
+  need_docker
+  prepare_playwright_paths
+  if [[ "$authenticated" == 'yes' ]]; then
+    (
+      trap cleanup_playwright_auth_state EXIT HUP INT TERM
+      cleanup_playwright_auth_state
+      compose run --rm -w /work/e2e playwright-auth npm ci
+      invoke_playwright_child "$script" "$authenticated" "$base_url" "$username" "$password" "$@"
+    )
+    return
+  fi
+
+  compose run --rm -w /work/e2e playwright npm ci
+  invoke_playwright_child "$script" "$authenticated" "$base_url" "$username" "$password" "$@"
 }
 
 test_e2e_auth() {
@@ -377,16 +501,28 @@ test_all() {
 }
 
 migrate_scan() {
+  (( $# == 0 )) || {
+    echo 'migrate:scan does not accept additional arguments.' >&2
+    return 2
+  }
   wp plugin activate goetz-migration || true
   wp goetz-migration scan --source="${SOURCE_URL:-https://goetzlegal.com}"
 }
 
 migrate_import() {
+  (( $# == 0 )) || {
+    echo 'migrate:import does not accept additional arguments.' >&2
+    return 2
+  }
   wp plugin activate goetz-migration || true
   wp goetz-migration import --source="${SOURCE_URL:-https://goetzlegal.com}"
 }
 
 db_export() {
+  (( $# <= 1 )) || {
+    echo 'db:export accepts at most one target URL.' >&2
+    return 2
+  }
   need_docker
   compose up -d db wordpress wpcli >/dev/null
   wait_for_wordpress_files
@@ -428,15 +564,15 @@ db_export() {
 case "${1:-help}" in
   start) shift; start "$@" ;;
   stop) shift; stop "$@" ;;
-  restart) shift; stop; start "$@" ;;
+  restart) shift; restart_services "$@" ;;
   compose) shift; need_docker; compose "$@" ;;
-  logs) need_docker; compose logs -f "${2:-wordpress}" ;;
-  shell) need_docker; compose exec wordpress bash ;;
+  logs) shift; logs_command "$@" ;;
+  shell) shift; shell_command "$@" ;;
   wp) shift; wp "$@" ;;
-  db) need_docker; compose exec db mariadb -u"${MYSQL_USER:-wordpress}" -p"${MYSQL_PASSWORD:-wordpress}" "${MYSQL_DATABASE:-wordpress}" ;;
+  db) shift; db_shell "$@" ;;
   install) shift; install_site "$@" ;;
   deps:install) shift; deps_install "$@" ;;
-  db:export) shift; db_export "${1:-}" ;;
+  db:export) shift; db_export "$@" ;;
   theme:dev) shift; theme_dev "$@" ;;
   theme:build) shift; theme_build "$@" ;;
   site:build) shift; site_build "$@" ;;
@@ -451,8 +587,8 @@ case "${1:-help}" in
   test:capture) shift; test_capture "$@" ;;
   test:e2e) shift; test_e2e "$@" ;;
   test:all) shift; test_all "$@" ;;
-  migrate:scan) migrate_scan ;;
-  migrate:import) migrate_import ;;
+  migrate:scan) shift; migrate_scan "$@" ;;
+  migrate:import) shift; migrate_import "$@" ;;
   *)
     cat <<'MSG'
 Usage: ./manager.sh <command>

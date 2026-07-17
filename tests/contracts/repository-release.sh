@@ -187,6 +187,8 @@ grep -q 'env -i' manager.sh
 grep -q -- '--env-file /dev/null' manager.sh
 ! grep -q -- '--env-file .*\.env' manager.sh
 ! grep -Eq 'npm install([[:space:]]|$)' manager.sh
+grep -Fq 'playwright-installer npx playwright install --with-deps chromium' manager.sh ||
+  fail 'e2e:install must run the mandated browser/dependency installer in its isolated service'
 ! grep -Eq 'wp plugin install (wordpress-seo|wpforms-lite)([[:space:]]|$)' manager.sh
 ! grep -Eq 'deploy:db|wp db import' manager.sh
 ! grep -Fq '${ROOT_DIR}/wp-content/uploads/' manager.sh
@@ -222,6 +224,8 @@ grep -A2 '"platform"' wp-content/themes/goetz-legal/composer.json | grep -Eq '"p
 grep -Fq 'composer install --no-dev --prefer-dist --classmap-authoritative --no-interaction --no-progress' manager.sh ||
   fail 'manager production dependency install must be locked and optimized'
 grep -Fq 'npm ci' manager.sh || fail 'manager Node dependency installs must use npm ci'
+grep -Fq 'vendor/bin/phpunit --cache-result-file /work/vendor/.phpunit.result.cache' manager.sh ||
+  fail 'PHPUnit cache must use the narrow writable Composer vendor mount'
 ! grep -Eq '(^|[[:space:]])npm install([[:space:]]|$)' manager.sh ||
   fail 'manager contains a floating npm install'
 ! grep -Eq '(^|[[:space:]])composer (update|require)([[:space:]]|$)' manager.sh ||
@@ -283,6 +287,12 @@ KINSTA_SSH_HOST=never-export-ssh-host
 KINSTA_SSH_PORT=65535
 KINSTA_SITE_PATH=/never/export/this/path
 GOETZ_NOT_ALLOWLISTED=never-forward-non-allowlisted
+GOETZ_BASE_URL=https://env-base.invalid
+GOETZ_EXPECT_ORIGIN=https://env-origin.invalid
+GOETZ_EXPECT_PRODUCTION=env-production
+GOETZ_E2E_ALLOW_REMOTE=env-allow
+GOETZ_E2E_USER=env-user
+GOETZ_E2E_PASSWORD=env-password
 SSH_KEY_PW=never-forward-this-test-value
 ENV
 chmod 0644 "$fixture/.env"
@@ -291,14 +301,52 @@ cat > "$fixture/bin/docker" <<'DOCKER'
 #!/usr/bin/env bash
 set -euo pipefail
 record="${0%/*}/docker-record"
-{
-  printf 'argv:'
-  printf ' <%s>' "$@"
-  printf '\n'
-  /usr/bin/env | /usr/bin/sort
-} >> "$record"
+count_file="${0%/*}/docker-count"
+fixture_root="$(cd "${0%/*}/.." && pwd)"
+count=0
+if [[ -s "$count_file" ]]; then
+  read -r count < "$count_file"
+fi
+count=$((count + 1))
+printf '%s\n' "$count" > "$count_file"
+
+write_record() {
+  local target="$1"
+  shift
+  {
+    printf 'argv:'
+    printf ' <%s>' "$@"
+    printf '\n'
+    /usr/bin/env | /usr/bin/sort
+  } >> "$target"
+}
+
+write_record "$record" "$@"
+write_record "${record}.${count}" "$@"
+
+is_npm=0
+is_ci=0
+for argument in "$@"; do
+  [[ "$argument" == 'npm' ]] && is_npm=1
+  [[ "$argument" == 'ci' ]] && is_ci=1
+  if [[ "$argument" == 'test:auth' ]]; then
+    mkdir -p "$fixture_root/__dev/playwright/auth-state"
+    printf '{"synthetic":"state"}\n' > "$fixture_root/__dev/playwright/auth-state/auth-state.json"
+    chmod 0644 "$fixture_root/__dev/playwright/auth-state/auth-state.json"
+    if [[ -e "$fixture_root/fail-auth" ]]; then
+      exit 9
+    fi
+  fi
+done
+if (( is_npm == 1 && is_ci == 1 )) && [[ -e "$fixture_root/fail-npm" ]]; then
+  exit 8
+fi
 DOCKER
 chmod 700 "$fixture/bin/docker"
+
+reset_fake_docker() {
+  rm -f "$fixture/bin/docker-count" "$fixture/bin/docker-record" "$fixture/bin"/docker-record.*
+}
 
 /usr/bin/env -i \
   HOME="$fixture/home" \
@@ -347,6 +395,12 @@ disallowed=(
   KINSTA_SITE_PATH
   GOETZ_NOT_ALLOWLISTED
   GOETZ_PREEXPORTED_SENTINEL
+  GOETZ_BASE_URL
+  GOETZ_EXPECT_ORIGIN
+  GOETZ_EXPECT_PRODUCTION
+  GOETZ_E2E_ALLOW_REMOTE
+  GOETZ_E2E_USER
+  GOETZ_E2E_PASSWORD
 )
 for name in "${disallowed[@]}"; do
   ! grep -q "^${name}=" "$record" || fail "non-allowlisted variable reached Docker: $name"
@@ -357,6 +411,473 @@ done
 ! grep -Fq 'never-forward-non-allowlisted' "$record" || fail 'synthetic non-allowlisted value reached Docker'
 ! grep -Fq 'never-forward-preexported-value' "$record" || fail 'pre-exported synthetic value reached Docker'
 ! grep -Fq "$fixture/.env" "$record" || fail 'synthetic .env path reached Docker'
+
+readonly -a GOETZ_BROWSER_VARIABLES=(
+  GOETZ_BASE_URL
+  GOETZ_EXPECT_ORIGIN
+  GOETZ_EXPECT_PRODUCTION
+  GOETZ_E2E_ALLOW_REMOTE
+  GOETZ_E2E_USER
+  GOETZ_E2E_PASSWORD
+)
+
+assert_no_browser_environment() {
+  local record_path="$1"
+  local name
+
+  [[ -s "$record_path" ]] || fail "missing fake Docker invocation record: $record_path"
+  for name in "${GOETZ_BROWSER_VARIABLES[@]}"; do
+    ! grep -q "^${name}=" "$record_path" ||
+      fail "browser-only variable reached unrelated Docker invocation: $name"
+  done
+}
+
+assert_public_browser_environment() {
+  local record_path="$1"
+
+  [[ -s "$record_path" ]] || fail "missing public browser Docker invocation record: $record_path"
+  grep -Fqx 'GOETZ_BASE_URL=https://caller-base.invalid' "$record_path" ||
+    fail 'public browser invocation did not receive the caller base URL'
+  grep -Fqx 'GOETZ_EXPECT_ORIGIN=https://caller-origin.invalid' "$record_path" ||
+    fail 'public browser invocation did not receive the caller expected origin'
+  grep -Fqx 'GOETZ_EXPECT_PRODUCTION=caller-production' "$record_path" ||
+    fail 'public browser invocation did not receive the caller production expectation'
+  for name in GOETZ_E2E_ALLOW_REMOTE GOETZ_E2E_USER GOETZ_E2E_PASSWORD; do
+    ! grep -q "^${name}=" "$record_path" ||
+      fail "public browser invocation received an authenticated-only variable: $name"
+  done
+}
+
+run_browser_fixture() {
+  local command="$1"
+  shift
+
+  /usr/bin/env -i \
+    HOME="$fixture/home" \
+    PATH="$fixture/bin:/usr/bin:/bin" \
+    GOETZ_BASE_URL=https://caller-base.invalid \
+    GOETZ_EXPECT_ORIGIN=https://caller-origin.invalid \
+    GOETZ_EXPECT_PRODUCTION=caller-production \
+    GOETZ_E2E_ALLOW_REMOTE=1 \
+    GOETZ_E2E_USER=caller-user \
+    GOETZ_E2E_PASSWORD=caller-password \
+    /bin/bash "$fixture/manager.sh" "$command" "$@"
+}
+
+reset_fake_docker
+run_browser_fixture test:e2e:auth --grep 'two words' ||
+  fail 'synthetic authenticated browser invocation failed unexpectedly'
+assert_no_browser_environment "$fixture/bin/docker-record.1"
+assert_no_browser_environment "$fixture/bin/docker-record.2"
+auth_record="$fixture/bin/docker-record.3"
+grep -Fqx 'GOETZ_BASE_URL=https://caller-base.invalid' "$auth_record" ||
+  fail 'authenticated browser invocation did not receive caller base URL'
+grep -Fqx 'GOETZ_EXPECT_ORIGIN=https://caller-origin.invalid' "$auth_record" ||
+  fail 'authenticated browser invocation did not receive caller expected origin'
+grep -Fqx 'GOETZ_EXPECT_PRODUCTION=caller-production' "$auth_record" ||
+  fail 'authenticated browser invocation did not receive caller production expectation'
+grep -Fqx 'GOETZ_E2E_ALLOW_REMOTE=1' "$auth_record" ||
+  fail 'authenticated browser invocation did not receive caller remote opt-in'
+grep -Fqx 'GOETZ_E2E_USER=caller-user' "$auth_record" ||
+  fail 'authenticated browser invocation did not receive caller username'
+grep -Fqx 'GOETZ_E2E_PASSWORD=caller-password' "$auth_record" ||
+  fail 'authenticated browser invocation did not receive caller password'
+grep -Fq '<--grep> <two words>' "$auth_record" ||
+  fail 'authenticated browser focused arguments were not quoted and forwarded intact'
+grep -Fq '<playwright-auth>' "$auth_record" ||
+  fail 'authenticated browser invocation did not use the state-enabled runtime service'
+[[ -d "$fixture/__dev/playwright/auth-state" ]] || fail 'authenticated browser state directory was not prepared'
+[[ "$(stat -c '%a' "$fixture/__dev/playwright/auth-state")" == '700' ]] ||
+  fail 'authenticated browser state directory was not restricted to mode 700'
+[[ -d "$fixture/__dev/playwright/auth-node-modules" ]] ||
+  fail 'authenticated browser dependency directory was not prepared'
+[[ -d "$fixture/__dev/playwright/public-node-modules" ]] ||
+  fail 'public browser dependency directory was not prepared'
+[[ -d "$fixture/artifacts/playwright/auth" ]] ||
+  fail 'authenticated browser artifact directory was not prepared'
+[[ "$(stat -c '%a' "$fixture/artifacts/playwright/auth")" == '700' ]] ||
+  fail 'authenticated browser artifact directory was not restricted to mode 700'
+[[ ! -e "$fixture/__dev/playwright/auth-state/auth-state.json" ]] ||
+  fail 'authenticated browser state persisted after a successful run'
+if find "$fixture/__dev/playwright/auth-state" -maxdepth 1 -name 'auth-state.json.tmp.*' -print -quit | grep -q .; then
+  fail 'authenticated browser temporary state persisted after a successful run'
+fi
+
+reset_fake_docker
+touch "$fixture/fail-auth"
+if run_browser_fixture test:e2e:auth >/dev/null 2>&1; then
+  fail 'synthetic authenticated browser failure unexpectedly succeeded'
+fi
+rm -f "$fixture/fail-auth"
+[[ ! -e "$fixture/__dev/playwright/auth-state/auth-state.json" ]] ||
+  fail 'authenticated browser state persisted after a failed run'
+if find "$fixture/__dev/playwright/auth-state" -maxdepth 1 -name 'auth-state.json.tmp.*' -print -quit | grep -q .; then
+  fail 'authenticated browser temporary state persisted after a failed run'
+fi
+
+reset_fake_docker
+printf '{"synthetic":"stale"}\n' > "$fixture/__dev/playwright/auth-state/auth-state.json"
+touch "$fixture/fail-npm"
+if run_browser_fixture test:e2e:auth >/dev/null 2>&1; then
+  fail 'synthetic authenticated dependency-install failure unexpectedly succeeded'
+fi
+rm -f "$fixture/fail-npm"
+[[ ! -e "$fixture/__dev/playwright/auth-state/auth-state.json" ]] ||
+  fail 'stale authenticated browser state survived a failed dependency install'
+
+reset_fake_docker
+if /usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  GOETZ_BASE_URL=https://remote.invalid \
+  GOETZ_E2E_ALLOW_REMOTE=1 \
+  /bin/bash "$fixture/manager.sh" test:e2e:auth >/dev/null 2>&1; then
+  fail 'remote authenticated browser run accepted missing caller credentials'
+fi
+[[ ! -e "$fixture/bin/docker-record" ]] ||
+  fail 'remote authenticated credential validation invoked Docker before rejecting the request'
+
+reset_fake_docker
+if /usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  GOETZ_BASE_URL=http://localhost:8080@remote.invalid \
+  /bin/bash "$fixture/manager.sh" test:e2e:auth >/dev/null 2>&1; then
+  fail 'userinfo-shaped remote URL bypassed the authenticated remote opt-in guard'
+fi
+[[ ! -e "$fixture/bin/docker-record" ]] ||
+  fail 'authenticated URL validation invoked Docker before rejecting a non-loopback authority'
+
+reset_fake_docker
+/usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  GOETZ_BASE_URL=http://localhost:18080 \
+  /bin/bash "$fixture/manager.sh" test:e2e:auth ||
+  fail 'local authenticated browser run did not retain local WordPress admin fallback'
+local_auth_record="$fixture/bin/docker-record.3"
+grep -Fqx 'GOETZ_E2E_USER=never-export-admin' "$local_auth_record" ||
+  fail 'local authenticated browser run did not receive the local WordPress username fallback'
+grep -Fqx 'GOETZ_E2E_PASSWORD=never-export-admin-password' "$local_auth_record" ||
+  fail 'local authenticated browser run did not receive the local WordPress password fallback'
+
+for public_command in test:public test:capture; do
+  reset_fake_docker
+  run_browser_fixture "$public_command" --grep 'public words' ||
+    fail "synthetic browser invocation failed unexpectedly: $public_command"
+  assert_no_browser_environment "$fixture/bin/docker-record.1"
+  assert_no_browser_environment "$fixture/bin/docker-record.2"
+  public_record="$fixture/bin/docker-record.3"
+  assert_public_browser_environment "$public_record"
+  grep -Fq '<playwright>' "$public_record" ||
+    fail "$public_command did not use the state-free runtime service"
+  ! grep -Fq '<playwright-auth>' "$public_record" ||
+    fail "$public_command used the authenticated state-enabled runtime service"
+  grep -Fq '<--grep> <public words>' "$public_record" ||
+    fail "$public_command focused arguments were not quoted and forwarded intact"
+done
+
+compose_service_block() {
+  local service="$1"
+
+  awk -v service="$service" '
+    $0 ~ "^  " service ":[[:space:]]*$" { in_service = 1 }
+    in_service && $0 ~ /^  [[:alnum:]_-]+:[[:space:]]*$/ &&
+      $0 !~ "^  " service ":[[:space:]]*$" { exit }
+    in_service { print }
+  ' docker-compose.yml
+}
+
+assert_bind_sources_allowlisted() {
+  local service="$1"
+  shift
+  local block
+  local line
+  local mount
+  local source
+  local allowed_source
+  local accepted
+  local in_volumes=0
+  block="$(compose_service_block "$service")"
+  [[ -n "$block" ]] || fail "Compose service is missing: $service"
+
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^[[:space:]]{4}volumes:[[:space:]]*$ ]]; then
+      in_volumes=1
+      continue
+    fi
+    if (( in_volumes == 1 )) && [[ "$line" =~ ^[[:space:]]{4}[[:alnum:]_-]+: ]]; then
+      in_volumes=0
+    fi
+    (( in_volumes == 1 )) || continue
+    [[ "$line" =~ ^[[:space:]]{6}-[[:space:]]+([^:]+): ]] ||
+      fail "$service uses an unparsed or long-syntax volume entry: $line"
+    mount="${line#*- }"
+    source="${mount%%:*}"
+    accepted=0
+    for allowed_source in "$@"; do
+      [[ "$source" == "$allowed_source" ]] && accepted=1
+    done
+    (( accepted == 1 )) || fail "$service exposes an unapproved bind source: $source"
+  done <<< "$block"
+}
+
+playwright_block="$(compose_service_block playwright)"
+! grep -Eq '^[[:space:]]*network_mode:[[:space:]]*host([[:space:]]|$)' <<< "$playwright_block" ||
+  fail 'Playwright must not share the host network namespace'
+! grep -Eq '^[[:space:]]*ipc:[[:space:]]*host([[:space:]]|$)' <<< "$playwright_block" ||
+  fail 'Playwright must not share the host IPC namespace'
+grep -Eq '^[[:space:]]*user:[[:space:]]*"?1000:1000"?[[:space:]]*$' <<< "$playwright_block" ||
+  fail 'Playwright must run as the non-root repository user'
+grep -Eq '^[[:space:]]*read_only:[[:space:]]*true[[:space:]]*$' <<< "$playwright_block" ||
+  fail 'Playwright root filesystem must be read-only'
+grep -Eq '^[[:space:]]*-[[:space:]]*ALL[[:space:]]*$' <<< "$playwright_block" ||
+  fail 'Playwright must drop all Linux capabilities'
+grep -Fq 'no-new-privileges:true' <<< "$playwright_block" ||
+  fail 'Playwright must disable privilege escalation'
+grep -Eq '^[[:space:]]*shm_size:[[:space:]]*' <<< "$playwright_block" ||
+  fail 'Playwright must use a private shared-memory allocation'
+grep -Fq 'host.docker.internal:host-gateway' <<< "$playwright_block" ||
+  fail 'Playwright must have the explicit local WordPress bridge route'
+assert_bind_sources_allowlisted playwright \
+  ./tests/e2e ./__dev/playwright/public-node-modules ./artifacts/playwright/public
+for required_mount in \
+  './tests/e2e:/work/e2e:ro' \
+  './__dev/playwright/public-node-modules:/work/e2e/node_modules' \
+  './artifacts/playwright/public:/work/artifacts'; do
+  grep -Fq "$required_mount" <<< "$playwright_block" ||
+    fail "Playwright narrow mount is missing: $required_mount"
+done
+! grep -Fq './__dev/playwright:' <<< "$playwright_block" ||
+  fail 'public Playwright runtime must not expose authenticated session state'
+! grep -Fq 'GOETZ_AUTH_STATE_PATH' <<< "$playwright_block" ||
+  fail 'public Playwright runtime must not receive the authenticated state path'
+for auth_only_name in GOETZ_E2E_ALLOW_REMOTE GOETZ_E2E_USER GOETZ_E2E_PASSWORD; do
+  ! grep -Fq "$auth_only_name" <<< "$playwright_block" ||
+    fail "public Playwright runtime statically defines an auth-only setting: $auth_only_name"
+done
+
+playwright_auth_block="$(compose_service_block playwright-auth)"
+grep -Eq '^[[:space:]]*user:[[:space:]]*"?1000:1000"?[[:space:]]*$' <<< "$playwright_auth_block" ||
+  fail 'authenticated Playwright must run as the non-root repository user'
+grep -Eq '^[[:space:]]*read_only:[[:space:]]*true[[:space:]]*$' <<< "$playwright_auth_block" ||
+  fail 'authenticated Playwright root filesystem must be read-only'
+grep -Eq '^[[:space:]]*-[[:space:]]*ALL[[:space:]]*$' <<< "$playwright_auth_block" ||
+  fail 'authenticated Playwright must drop all Linux capabilities'
+grep -Fq 'no-new-privileges:true' <<< "$playwright_auth_block" ||
+  fail 'authenticated Playwright must disable privilege escalation'
+! grep -Eq '^[[:space:]]*network_mode:[[:space:]]*host([[:space:]]|$)' <<< "$playwright_auth_block" ||
+  fail 'authenticated Playwright must not share the host network namespace'
+! grep -Eq '^[[:space:]]*ipc:[[:space:]]*host([[:space:]]|$)' <<< "$playwright_auth_block" ||
+  fail 'authenticated Playwright must not share the host IPC namespace'
+assert_bind_sources_allowlisted playwright-auth \
+  ./tests/e2e ./__dev/playwright/auth-node-modules ./__dev/playwright/auth-state \
+  ./artifacts/playwright/auth
+for required_mount in \
+  './tests/e2e:/work/e2e:ro' \
+  './__dev/playwright/auth-node-modules:/work/e2e/node_modules' \
+  './__dev/playwright/auth-state:/work/state' \
+  './artifacts/playwright/auth:/work/artifacts'; do
+  grep -Fq "$required_mount" <<< "$playwright_auth_block" ||
+    fail "authenticated Playwright narrow mount is missing: $required_mount"
+done
+grep -Fq 'GOETZ_AUTH_STATE_PATH: /work/state/auth-state.json' <<< "$playwright_auth_block" ||
+  fail 'authenticated Playwright state path is not scoped to its narrow mount'
+! grep -Fq './artifacts/playwright/public:' <<< "$playwright_auth_block" ||
+  fail 'authenticated Playwright must not expose public/remote browser artifacts'
+! grep -Fq './artifacts/playwright/auth:' <<< "$playwright_block" ||
+  fail 'public/capture Playwright must not expose authenticated browser artifacts'
+! grep -Fq './__dev/playwright/auth-node-modules:' <<< "$playwright_block" ||
+  fail 'public/capture Playwright must not expose authenticated browser dependencies'
+! grep -Fq './__dev/playwright/public-node-modules:' <<< "$playwright_auth_block" ||
+  fail 'authenticated Playwright must not expose public/remote browser dependencies'
+
+playwright_installer_block="$(compose_service_block playwright-installer)"
+grep -Eq '^[[:space:]]*user:[[:space:]]*"?0:0"?[[:space:]]*$' <<< "$playwright_installer_block" ||
+  fail 'isolated Playwright installer must explicitly declare its ephemeral root identity'
+! grep -Eq '^[[:space:]]*network_mode:[[:space:]]*host([[:space:]]|$)' <<< "$playwright_installer_block" ||
+  fail 'Playwright installer must not share the host network namespace'
+! grep -Eq '^[[:space:]]*ipc:[[:space:]]*host([[:space:]]|$)' <<< "$playwright_installer_block" ||
+  fail 'Playwright installer must not share the host IPC namespace'
+! grep -Fq 'host.docker.internal' <<< "$playwright_installer_block" ||
+  fail 'Playwright installer must not receive a local host-gateway route'
+! grep -Fq 'GOETZ_' <<< "$playwright_installer_block" ||
+  fail 'Playwright installer must not receive browser targets, credentials, or state settings'
+assert_bind_sources_allowlisted playwright-installer ./tests/e2e ./__dev/playwright/public-node-modules
+grep -Fq './tests/e2e:/work/e2e:ro' <<< "$playwright_installer_block" ||
+  fail 'Playwright installer must receive only the read-only E2E dependency tree'
+grep -Fq './__dev/playwright/public-node-modules:/work/e2e/node_modules:ro' <<< "$playwright_installer_block" ||
+  fail 'Playwright installer must read only the isolated public dependency tree'
+
+node_block="$(compose_service_block node)"
+assert_bind_sources_allowlisted node ./wp-content/themes/goetz-legal ./wp-content/plugins/goetz-site
+grep -Fq './wp-content/themes/goetz-legal:/work/theme' <<< "$node_block" ||
+  fail 'Node must expose only the Goetz theme at /work/theme'
+grep -Fq './wp-content/plugins/goetz-site:/work/site' <<< "$node_block" ||
+  fail 'Node must expose only the Goetz site plugin at /work/site'
+
+wpcli_block="$(compose_service_block wpcli)"
+assert_bind_sources_allowlisted wpcli wordpress_core ./wp-content ./tests
+grep -Fq './tests:/app/tests:ro' <<< "$wpcli_block" ||
+  fail 'WP-CLI must expose only the read-only test fixtures under /app'
+
+composer_block="$(compose_service_block composer)"
+assert_bind_sources_allowlisted composer \
+  ./composer.json ./composer.lock ./phpunit.xml.dist ./vendor ./tests/phpunit \
+  ./wp-content/plugins ./wp-content/themes/goetz-legal
+for required_mount in \
+  './composer.json:/work/composer.json:ro' \
+  './composer.lock:/work/composer.lock:ro' \
+  './phpunit.xml.dist:/work/phpunit.xml.dist:ro' \
+  './vendor:/work/vendor' \
+  './tests/phpunit:/work/tests/phpunit:ro' \
+  './wp-content/plugins:/work/wp-content/plugins' \
+  './wp-content/themes/goetz-legal:/work/wp-content/themes/goetz-legal'; do
+  grep -Fq "$required_mount" <<< "$composer_block" ||
+    fail "Composer narrow mount is missing: $required_mount"
+done
+
+for service in playwright playwright-auth playwright-installer node wpcli composer; do
+  service_block="$(compose_service_block "$service")"
+  ! grep -Eq '^[[:space:]]*-[[:space:]]+\.:/' <<< "$service_block" ||
+    fail "$service must not bind-mount the repository root"
+  ! grep -Fq '.env:' <<< "$service_block" ||
+    fail "$service must not bind-mount the root .env"
+done
+
+auth_helper_fixture="$fixture/auth-helper"
+mkdir -p "$auth_helper_fixture"
+node --input-type=module - "$root/tests/e2e/helpers/auth-state.mjs" "$auth_helper_fixture" <<'NODE'
+import { readdir, stat, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const [modulePath, fixturePath] = process.argv.slice(2);
+const { cleanupAuthState, prepareAuthState, writePrivateStateAtomic } =
+  await import(pathToFileURL(modulePath).href);
+const statePath = path.join(fixturePath, 'nested', 'auth-state.json');
+await prepareAuthState(statePath);
+if ((await stat(path.dirname(statePath))).mode.toString(8).slice(-3) !== '700') {
+  throw new Error('auth state directory mode is not 0700');
+}
+await writeFile(statePath, '{"stale":true}\n', { mode: 0o644 });
+await prepareAuthState(statePath);
+try {
+  await stat(statePath);
+  throw new Error('prepareAuthState did not delete stale state');
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error;
+}
+await writePrivateStateAtomic(statePath, async (temporaryPath) => {
+  if ((await stat(temporaryPath)).mode.toString(8).slice(-3) !== '600') {
+    throw new Error('auth state temporary file mode is not 0600 before writing');
+  }
+  await writeFile(temporaryPath, '{"synthetic":"private"}\n');
+});
+if ((await stat(statePath)).mode.toString(8).slice(-3) !== '600') {
+  throw new Error('auth state file mode is not 0600');
+}
+if ((await readdir(path.dirname(statePath))).some((entry) => entry.startsWith('auth-state.json.tmp.'))) {
+  throw new Error('atomic auth state temporary file persisted');
+}
+await cleanupAuthState(statePath);
+try {
+  await stat(statePath);
+  throw new Error('cleanupAuthState did not delete state');
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error;
+}
+NODE
+
+[[ -f tests/e2e/helpers/browser.mjs ]] ||
+  fail 'Playwright local WordPress browser routing helper is missing'
+grep -Fq 'host.docker.internal' tests/e2e/helpers/browser.mjs ||
+  fail 'Playwright browser routing does not target the explicit Compose host gateway'
+grep -Fq -- '--host-resolver-rules=' tests/e2e/helpers/browser.mjs ||
+  fail 'Playwright browser routing does not preserve the canonical localhost URL'
+node --input-type=module - "$root/tests/e2e/helpers/browser.mjs" <<'NODE'
+import { pathToFileURL } from 'node:url';
+
+const { wordpressLaunchOptions } = await import(pathToFileURL(process.argv[2]).href);
+const localOptions = wordpressLaunchOptions('http://localhost:8080', true);
+if (!localOptions.args?.some((argument) => argument.includes('host.docker.internal'))) {
+  throw new Error('loopback Compose URL did not receive the explicit host-gateway route');
+}
+for (const remoteURL of ['https://goetzlegal.com', 'https://example.invalid']) {
+  const remoteOptions = wordpressLaunchOptions(remoteURL, true);
+  if (remoteOptions.args?.some((argument) => argument.includes('host.docker.internal'))) {
+    throw new Error(`remote URL received a host-gateway resolver rule: ${remoteURL}`);
+  }
+}
+NODE
+for playwright_config in \
+  tests/e2e/playwright.config.ts \
+  tests/e2e/playwright.public.config.ts \
+  tests/e2e/playwright.capture.config.ts; do
+  grep -Fq 'GOETZ_ARTIFACT_DIR' "$playwright_config" ||
+    fail "Playwright config does not use the narrow artifact mount: $playwright_config"
+  grep -Fq 'wordpressLaunchOptions(baseURL)' "$playwright_config" ||
+    fail "Playwright config does not conditionally use the local WordPress bridge route: $playwright_config"
+done
+grep -Fq 'GOETZ_AUTH_STATE_PATH' tests/e2e/playwright.config.ts ||
+  fail 'authenticated Playwright config does not use the narrow state mount'
+for auth_state_consumer in \
+  tests/e2e/playwright.config.ts \
+  tests/e2e/global-setup.ts \
+  tests/e2e/global-teardown.ts; do
+  grep -Fq '../../__dev/playwright/auth-state/auth-state.json' "$auth_state_consumer" ||
+    fail "direct authenticated Playwright fallback is outside the isolated state directory: $auth_state_consumer"
+done
+grep -Fq "globalTeardown: './global-teardown.ts'" tests/e2e/playwright.config.ts ||
+  fail 'authenticated Playwright config does not clean session state after direct test runs'
+[[ -f tests/e2e/global-teardown.ts ]] ||
+  fail 'authenticated Playwright global teardown is missing'
+grep -Fq 'cleanupAuthState' tests/e2e/global-teardown.ts ||
+  fail 'authenticated Playwright global teardown does not delete session state'
+for auth_state_function in prepareAuthState writePrivateStateAtomic cleanupAuthState; do
+  grep -Fq "$auth_state_function" tests/e2e/global-setup.ts ||
+    fail "authenticated Playwright setup does not use $auth_state_function"
+done
+grep -Fq 'launchOptions' tests/e2e/global-setup.ts ||
+  fail 'authenticated Playwright setup does not preserve project browser routing options'
+
+dispatcher_without_shift="$(awk '
+  /^case "\$\{1:-help\}" in$/ { in_dispatcher = 1; next }
+  in_dispatcher && /^esac$/ { exit }
+  in_dispatcher && /^  [[:alnum:]][[:alnum:]_:.-]*\)/ && $0 !~ /\)[[:space:]]*shift;/ { print }
+' manager.sh)"
+[[ -z "$dispatcher_without_shift" ]] ||
+  fail "manager dispatcher branches must shift then quote-forward arguments: $dispatcher_without_shift"
+
+reset_fake_docker
+/usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  /bin/bash "$fixture/manager.sh" logs 'service with spaces'
+grep -Fq '<logs> <-f> <service with spaces>' "$fixture/bin/docker-record.2" ||
+  fail 'logs dispatcher did not preserve a service argument containing spaces'
+
+for focused_command in 'logs one two' 'shell unexpected' 'db unexpected' 'db:export one two' 'migrate:scan unexpected' 'migrate:import unexpected'; do
+  reset_fake_docker
+  read -r -a focused_arguments <<< "$focused_command"
+  if /usr/bin/env -i \
+    HOME="$fixture/home" \
+    PATH="$fixture/bin:/usr/bin:/bin" \
+    /bin/bash "$fixture/manager.sh" "${focused_arguments[@]}" >/dev/null 2>&1; then
+    fail "focused dispatcher validation unexpectedly accepted arguments: $focused_command"
+  fi
+  [[ ! -e "$fixture/bin/docker-record" ]] ||
+    fail "focused dispatcher validation invoked Docker before rejecting arguments: $focused_command"
+done
+
+reset_fake_docker
+/usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  /bin/bash "$fixture/manager.sh" site:build >/dev/null ||
+  fail 'site:build did not gracefully handle the pre-block-source repository state'
+[[ ! -e "$fixture/bin/docker-record" ]] ||
+  fail 'site:build invoked Docker even though the site block entrypoint is absent'
 
 new_env_fixture="$fixture/new-env"
 mkdir -p "$new_env_fixture"

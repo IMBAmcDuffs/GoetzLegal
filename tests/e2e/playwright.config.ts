@@ -1,7 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 import path from 'node:path';
+import { wordpressLaunchOptions } from './helpers/browser.mjs';
 
 const baseURL = process.env.GOETZ_BASE_URL || process.env.WP_URL || 'http://localhost:8080';
+const artifactRoot = process.env.GOETZ_ARTIFACT_DIR || path.resolve('../../__dev/playwright');
+const authStatePath = process.env.GOETZ_AUTH_STATE_PATH || path.resolve('../../__dev/playwright/auth-state/auth-state.json');
 
 export default defineConfig({
   testDir: '.',
@@ -15,9 +18,11 @@ export default defineConfig({
   workers: 1,
   reporter: 'line',
   globalSetup: './global-setup.ts',
-  outputDir: path.resolve('../../__dev/playwright/auth-results'),
+  globalTeardown: './global-teardown.ts',
+  outputDir: path.join(artifactRoot, 'auth-results'),
   use: {
     baseURL,
+    launchOptions: wordpressLaunchOptions(baseURL),
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -29,7 +34,7 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         browserName: 'chromium',
-        storageState: path.resolve('../../__dev/playwright/auth-state.json'),
+        storageState: authStatePath,
       },
     },
   ],
