@@ -9,6 +9,97 @@ fail() {
   exit 1
 }
 
+# Curated media ships as immutable plugin source. Runtime uploads never belong
+# in a release payload, including generated copies of these originals.
+readonly CURATED_SEED_ORIGINALS_DIR='wp-content/plugins/goetz-site/assets/seed'
+[[ "${CURATED_SEED_ORIGINALS_DIR:-}" == 'wp-content/plugins/goetz-site/assets/seed' ]] ||
+  fail 'curated seed originals must live in the goetz-site plugin assets/seed directory'
+[[ "$CURATED_SEED_ORIGINALS_DIR" != wp-content/uploads/* ]] ||
+  fail 'curated seed originals must never be sourced from runtime uploads'
+
+normalize_absolute_path() {
+  local path="$1"
+  local component
+  local -a components=()
+  local -a normalized=()
+
+  [[ "$path" == /* ]] || return 1
+  IFS='/' read -r -a components <<< "$path"
+  for component in "${components[@]}"; do
+    case "$component" in
+      ''|.)
+        ;;
+      ..)
+        (( ${#normalized[@]} > 0 )) || return 1
+        unset "normalized[$((${#normalized[@]} - 1))]"
+        ;;
+      *)
+        normalized+=("$component")
+        ;;
+    esac
+  done
+
+  if (( ${#normalized[@]} == 0 )); then
+    printf '/\n'
+    return 0
+  fi
+
+  printf '/%s' "${normalized[0]}"
+  for component in "${normalized[@]:1}"; do
+    printf '/%s' "$component"
+  done
+  printf '\n'
+}
+
+rsync_delete_is_safe() {
+  local record_path="$1"
+  local site_root="$2"
+  local argument
+  local destination
+  local destination_path
+  local normalized_destination
+  local normalized_site_root
+  local has_delete=0
+  local -a arguments=()
+
+  [[ -s "$record_path" ]] || return 1
+  mapfile -d '' -t arguments < "$record_path"
+  (( ${#arguments[@]} >= 2 )) || return 1
+
+  for argument in "${arguments[@]}"; do
+    case "$argument" in
+      --delete|--delete-*)
+        has_delete=1
+        ;;
+    esac
+  done
+  (( has_delete == 1 )) || return 0
+
+  destination="${arguments[$((${#arguments[@]} - 1))]}"
+  case "$destination" in
+    *:/*)
+      destination_path="${destination#*:}"
+      ;;
+    /*)
+      destination_path="$destination"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  normalized_destination="$(normalize_absolute_path "$destination_path")" || return 1
+  normalized_site_root="$(normalize_absolute_path "$site_root")" || return 1
+
+  case "$normalized_destination" in
+    "$normalized_site_root"|"$normalized_site_root/wp-content/plugins"|"$normalized_site_root/wp-content/mu-plugins"|"$normalized_site_root/wp-content/uploads")
+      return 1
+      ;;
+  esac
+
+  return 0
+}
+
 # Repository ignore and manager safety invariants.
 git check-ignore -q --no-index .env
 ! git check-ignore -q --no-index .env.example
@@ -16,14 +107,26 @@ grep -Fqx '/.env*' .gitignore
 grep -Fqx '/.env' .gitignore
 grep -Fqx '!.env.example' .gitignore
 grep -q '^unset SSH_KEY_PW$' manager.sh
+mapfile -t ssh_unset_lines < <(grep -n '^unset SSH_KEY_PW$' manager.sh | cut -d: -f1)
+root_dir_line="$(grep -n '^ROOT_DIR=' manager.sh | cut -d: -f1)"
+(( ${#ssh_unset_lines[@]} >= 2 ))
+(( ssh_unset_lines[0] < root_dir_line ))
+awk '
+  BEGIN { found = 0 }
+  /^source "\$\{ROOT_DIR\}\/\.env"$/ {
+    found = 1
+    if ((getline next_line) <= 0 || next_line != "unset SSH_KEY_PW") exit 1
+  }
+  END { if (!found) exit 1 }
+' manager.sh
 grep -q 'COMPOSE_DISABLE_ENV_FILE=1' manager.sh
+grep -q 'env -i' manager.sh
 grep -q -- '--env-file /dev/null' manager.sh
 ! grep -q -- '--env-file .*\.env' manager.sh
 ! grep -Eq 'npm install([[:space:]]|$)' manager.sh
 ! grep -Eq 'wp plugin install (wordpress-seo|wpforms-lite)([[:space:]]|$)' manager.sh
 ! grep -Eq 'deploy:db|wp db import' manager.sh
 ! grep -Fq '${ROOT_DIR}/wp-content/uploads/' manager.sh
-! grep -Eq "wp-content/plugins/([\"'])" manager.sh
 
 inspect_release() {
   local release_dir="$1"
@@ -83,6 +186,7 @@ KINSTA_SITE_PATH=/never/export/this/path
 GOETZ_NOT_ALLOWLISTED=never-forward-non-allowlisted
 SSH_KEY_PW=never-forward-this-test-value
 ENV
+chmod 0644 "$fixture/.env"
 
 cat > "$fixture/bin/docker" <<'DOCKER'
 #!/usr/bin/env bash
@@ -100,10 +204,16 @@ chmod 700 "$fixture/bin/docker"
 /usr/bin/env -i \
   HOME="$fixture/home" \
   PATH="$fixture/bin:/usr/bin:/bin" \
+  GOETZ_PREEXPORTED_SENTINEL=never-forward-preexported-value \
+  WP_ADMIN_PASSWORD=never-forward-preexported-admin \
+  SSH_KEY_PW=never-forward-inherited-ssh-value \
   /bin/bash "$fixture/manager.sh" compose config
+
+[[ "$(stat -c '%a' "$fixture/.env")" == '600' ]] || fail 'existing synthetic .env was not restricted to mode 600'
 
 record="$fixture/bin/docker-record"
 [[ -s "$record" ]] || fail 'fake Docker did not record the Compose invocation'
+[[ "$(grep -c '^argv:' "$record")" -eq 2 ]] || fail 'expected sanitized docker version and Compose invocations'
 grep -Fq 'argv: <compose> <--env-file> </dev/null> <config>' "$record" ||
   fail 'Compose was not invoked with --env-file /dev/null and quoted forwarding'
 
@@ -137,13 +247,84 @@ disallowed=(
   KINSTA_SSH_PORT
   KINSTA_SITE_PATH
   GOETZ_NOT_ALLOWLISTED
+  GOETZ_PREEXPORTED_SENTINEL
 )
 for name in "${disallowed[@]}"; do
   ! grep -q "^${name}=" "$record" || fail "non-allowlisted variable reached Docker: $name"
 done
 
 ! grep -Fq 'never-forward-this-test-value' "$record" || fail 'synthetic SSH passphrase reached Docker'
+! grep -Fq 'never-forward-inherited-ssh-value' "$record" || fail 'inherited synthetic SSH passphrase reached Docker'
 ! grep -Fq 'never-forward-non-allowlisted' "$record" || fail 'synthetic non-allowlisted value reached Docker'
+! grep -Fq 'never-forward-preexported-value' "$record" || fail 'pre-exported synthetic value reached Docker'
 ! grep -Fq "$fixture/.env" "$record" || fail 'synthetic .env path reached Docker'
+
+new_env_fixture="$fixture/new-env"
+mkdir -p "$new_env_fixture"
+cp manager.sh .env.example "$new_env_fixture/"
+(
+  umask 0022
+  /usr/bin/env -i \
+    HOME="$fixture/home" \
+    PATH="$fixture/bin:/usr/bin:/bin" \
+    SSH_KEY_PW=never-forward-new-env-ssh-value \
+    /bin/bash "$new_env_fixture/manager.sh" help >/dev/null
+)
+[[ "$(stat -c '%a' "$new_env_fixture/.env")" == '600' ]] || fail 'new synthetic .env was not created with mode 600'
+
+rsync_bin="$fixture/rsync-bin"
+mkdir -p "$rsync_bin"
+cat > "$rsync_bin/rsync" <<'RSYNC'
+#!/usr/bin/env bash
+set -euo pipefail
+: "${GOETZ_RSYNC_RECORD:?}"
+printf '%s\0' "$@" > "$GOETZ_RSYNC_RECORD"
+RSYNC
+chmod 700 "$rsync_bin/rsync"
+
+record_rsync() {
+  local record_path="$1"
+  shift
+  GOETZ_RSYNC_RECORD="$record_path" PATH="$rsync_bin:/usr/bin:/bin" "$@"
+}
+
+site_root='/www/example/public'
+variable_plugin_record="$fixture/rsync-variable-plugin.record"
+record_rsync "$variable_plugin_record" /bin/bash -c '
+  site_root=$1
+  plugin_root="deploy@example.invalid:${site_root}/wp-content/plugins"
+  rsync -az --delete /tmp/source/ "${plugin_root}/"
+' _ "$site_root"
+
+unquoted_mu_record="$fixture/rsync-unquoted-mu.record"
+record_rsync "$unquoted_mu_record" /bin/bash -c \
+  'rsync -az --delete /tmp/source/ deploy@example.invalid:/www/example/public/wp-content/mu-plugins/'
+
+core_record="$fixture/rsync-core.record"
+record_rsync "$core_record" /bin/bash -c \
+  'rsync -az --delete-delay /tmp/source/ deploy@example.invalid:/www/example/public/'
+
+uploads_record="$fixture/rsync-uploads.record"
+record_rsync "$uploads_record" /bin/bash -c \
+  'rsync -az --delete-after /tmp/source/ deploy@example.invalid:/www/example/public/wp-content/uploads/'
+
+safe_plugin_record="$fixture/rsync-safe-plugin.record"
+record_rsync "$safe_plugin_record" /bin/bash -c \
+  'rsync -az --delete /tmp/source/ deploy@example.invalid:/www/example/public/wp-content/plugins/goetz-site/'
+
+declare -F rsync_delete_is_safe >/dev/null || fail 'resolved rsync deletion guard is missing'
+if rsync_delete_is_safe "$variable_plugin_record" "$site_root"; then
+  fail 'variable-built plugin-root --delete destination was accepted'
+fi
+if rsync_delete_is_safe "$unquoted_mu_record" "$site_root"; then
+  fail 'unquoted MU-plugin-root --delete destination was accepted'
+fi
+if rsync_delete_is_safe "$core_record" "$site_root"; then
+  fail 'WordPress-root --delete destination was accepted'
+fi
+if rsync_delete_is_safe "$uploads_record" "$site_root"; then
+  fail 'uploads-root --delete destination was accepted'
+fi
+rsync_delete_is_safe "$safe_plugin_record" "$site_root" || fail 'explicit named-plugin --delete destination was rejected'
 
 printf 'repository-release: PASS\n'

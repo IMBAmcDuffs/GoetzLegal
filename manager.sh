@@ -1,34 +1,59 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+unset SSH_KEY_PW
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WP_PATH=/var/www/html
 
 if [[ ! -f "${ROOT_DIR}/.env" ]]; then
-  cp "${ROOT_DIR}/.env.example" "${ROOT_DIR}/.env"
+  (
+    umask 077
+    cp "${ROOT_DIR}/.env.example" "${ROOT_DIR}/.env"
+  )
 fi
+chmod 600 "${ROOT_DIR}/.env"
 
 cd "${ROOT_DIR}"
+set +a
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/.env"
 unset SSH_KEY_PW
 
+docker_cli() {
+  local -a clean_env=(
+    "HOME=${HOME:-/tmp}"
+    "PATH=${PATH:-/usr/local/bin:/usr/bin:/bin}"
+    'COMPOSE_DISABLE_ENV_FILE=1'
+    "COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-goetzlegal}"
+    "WP_PORT=${WP_PORT:-8080}"
+    "MYSQL_DATABASE=${MYSQL_DATABASE:-wordpress}"
+    "MYSQL_USER=${MYSQL_USER:-wordpress}"
+    "MYSQL_PASSWORD=${MYSQL_PASSWORD:-wordpress}"
+    "MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-wordpress}"
+    "FETCH_PROXY_URL=${FETCH_PROXY_URL:-}"
+    "WORDPRESS_IMAGE=${WORDPRESS_IMAGE:-wordpress:php8.3-apache}"
+    "WPCLI_IMAGE=${WPCLI_IMAGE:-wordpress:cli-php8.3}"
+  )
+  local process_variable
+
+  for process_variable in \
+    DOCKER_API_VERSION DOCKER_CERT_PATH DOCKER_CONFIG DOCKER_CONTEXT \
+    DOCKER_HOST DOCKER_TLS_VERIFY SSH_AUTH_SOCK SSL_CERT_DIR SSL_CERT_FILE \
+    TERM TMPDIR XDG_RUNTIME_DIR; do
+    if [[ -v "${process_variable}" ]]; then
+      clean_env+=("${process_variable}=${!process_variable}")
+    fi
+  done
+
+  /usr/bin/env -i "${clean_env[@]}" docker "$@"
+}
+
 compose() {
-  COMPOSE_DISABLE_ENV_FILE=1 \
-    COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-goetzlegal}" \
-    WP_PORT="${WP_PORT:-8080}" \
-    MYSQL_DATABASE="${MYSQL_DATABASE:-wordpress}" \
-    MYSQL_USER="${MYSQL_USER:-wordpress}" \
-    MYSQL_PASSWORD="${MYSQL_PASSWORD:-wordpress}" \
-    MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-wordpress}" \
-    FETCH_PROXY_URL="${FETCH_PROXY_URL:-}" \
-    WORDPRESS_IMAGE="${WORDPRESS_IMAGE:-wordpress:php8.3-apache}" \
-    WPCLI_IMAGE="${WPCLI_IMAGE:-wordpress:cli-php8.3}" \
-    docker compose --env-file /dev/null "$@"
+  docker_cli compose --env-file /dev/null "$@"
 }
 
 need_docker() {
-  if ! command -v docker >/dev/null 2>&1 || ! docker version >/dev/null 2>&1; then
+  if ! command -v docker >/dev/null 2>&1 || ! docker_cli version >/dev/null 2>&1; then
     cat >&2 <<'MSG'
 Docker is not available in this shell.
 
