@@ -119,6 +119,28 @@ services:
     security_opt:
       - no-new-privileges:true
     shm_size: "1gb"
+    environment:
+      HOME: /tmp/playwright-home
+      npm_config_cache: /tmp/playwright-cache
+      GOETZ_ARTIFACT_DIR: /work/artifacts
+    volumes:
+      - ./tests/e2e:/work/e2e:ro
+      - ./__dev/playwright/public-node-modules:/work/e2e/node_modules
+      - ./artifacts/playwright/public:/work/artifacts
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=1g,uid=1000,gid=1000
+    working_dir: /work/e2e
+
+  playwright-local:
+    image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+    init: true
+    user: "1000:1000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    shm_size: "1gb"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -135,6 +157,30 @@ services:
     working_dir: /work/e2e
 
   playwright-auth:
+    image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+    init: true
+    user: "1000:1000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    shm_size: "1gb"
+    environment:
+      HOME: /tmp/playwright-home
+      npm_config_cache: /tmp/playwright-cache
+      GOETZ_AUTH_STATE_PATH: /work/state/auth-state.json
+      GOETZ_ARTIFACT_DIR: /work/artifacts
+    volumes:
+      - ./tests/e2e:/work/e2e:ro
+      - ./__dev/playwright/auth-node-modules:/work/e2e/node_modules
+      - ./__dev/playwright/auth-state:/work/state
+      - ./artifacts/playwright/auth:/work/artifacts
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=1g,uid=1000,gid=1000
+    working_dir: /work/e2e
+
+  playwright-auth-local:
     image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
     init: true
     user: "1000:1000"

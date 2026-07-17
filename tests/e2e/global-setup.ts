@@ -1,10 +1,6 @@
 import { chromium, type FullConfig } from '@playwright/test';
 import path from 'node:path';
-import {
-  cleanupAuthState,
-  prepareAuthState,
-  writePrivateStateAtomic,
-} from './helpers/auth-state.mjs';
+import { runAuthenticatedSetup } from './helpers/auth-setup.mjs';
 
 function isLoopback(url: URL): boolean {
   return ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
@@ -29,30 +25,16 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
 
   const storageState = process.env.GOETZ_AUTH_STATE_PATH ||
     path.resolve('../../__dev/playwright/auth-state/auth-state.json');
-  await prepareAuthState(storageState);
 
-  const browser = await chromium.launch(config.projects[0]?.use.launchOptions).catch(async (error) => {
-    await cleanupAuthState(storageState);
-    throw error;
+  await runAuthenticatedSetup({
+    browserType: chromium,
+    launchOptions: config.projects[0]?.use.launchOptions,
+    storageState,
+    login: {
+      loginURL: new URL('/wp-login.php', baseURL).toString(),
+      expectedOrigin: process.env.GOETZ_EXPECT_ORIGIN || baseURL.origin,
+      username,
+      password,
+    },
   });
-  try {
-    const page = await browser.newPage();
-    await page.goto(new URL('/wp-login.php', baseURL).toString(), {
-      waitUntil: 'domcontentloaded',
-    });
-    await page.locator('#user_login').fill(username);
-    await page.locator('#user_pass').fill(password);
-    await Promise.all([
-      page.waitForURL(/\/wp-admin\/?(?:$|[?#])/, { timeout: 30_000 }),
-      page.locator('#wp-submit').click(),
-    ]);
-    await writePrivateStateAtomic(storageState, async (temporaryPath) => {
-      await page.context().storageState({ path: temporaryPath });
-    });
-  } catch (error) {
-    await cleanupAuthState(storageState);
-    throw error;
-  } finally {
-    await browser.close();
-  }
 }

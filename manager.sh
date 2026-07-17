@@ -372,12 +372,12 @@ prepare_playwright_paths() {
 invoke_playwright_child() {
   local script="$1"
   local authenticated="$2"
-  local base_url="$3"
-  local username="$4"
-  local password="$5"
-  shift 5
+  local playwright_service="$3"
+  local base_url="$4"
+  local username="$5"
+  local password="$6"
+  shift 6
 
-  local playwright_service='playwright'
   local GOETZ_BASE_URL="$base_url"
   local -a environment_args=(-e GOETZ_BASE_URL)
   if [[ -n "$CALLER_GOETZ_EXPECT_ORIGIN_SET" ]]; then
@@ -390,7 +390,6 @@ invoke_playwright_child() {
   fi
 
   if [[ "$authenticated" == 'yes' ]]; then
-    playwright_service='playwright-auth'
     local GOETZ_E2E_USER="$username"
     local GOETZ_E2E_PASSWORD="$password"
     environment_args+=(-e GOETZ_E2E_USER -e GOETZ_E2E_PASSWORD)
@@ -418,8 +417,13 @@ run_playwright() {
 
   local username=''
   local password=''
+  local local_test='no'
+  if is_local_test_url "$base_url"; then
+    local_test='yes'
+  fi
+
   if [[ "$authenticated" == 'yes' ]]; then
-    if is_local_test_url "$base_url"; then
+    if [[ "$local_test" == 'yes' ]]; then
       if [[ -n "$CALLER_GOETZ_E2E_USER_SET" ]]; then
         username="$CALLER_GOETZ_E2E_USER"
       else
@@ -445,20 +449,33 @@ run_playwright() {
     fi
   fi
 
+  local playwright_service='playwright'
+  if [[ "$authenticated" == 'yes' ]]; then
+    if [[ "$local_test" == 'yes' ]]; then
+      playwright_service='playwright-auth-local'
+    else
+      playwright_service='playwright-auth'
+    fi
+  elif [[ "$local_test" == 'yes' ]]; then
+    playwright_service='playwright-local'
+  fi
+
   need_docker
   prepare_playwright_paths
   if [[ "$authenticated" == 'yes' ]]; then
     (
       trap cleanup_playwright_auth_state EXIT HUP INT TERM
       cleanup_playwright_auth_state
-      compose run --rm -w /work/e2e playwright-auth npm ci
-      invoke_playwright_child "$script" "$authenticated" "$base_url" "$username" "$password" "$@"
+      compose run --rm -w /work/e2e "$playwright_service" npm ci
+      invoke_playwright_child \
+        "$script" "$authenticated" "$playwright_service" "$base_url" "$username" "$password" "$@"
     )
     return
   fi
 
-  compose run --rm -w /work/e2e playwright npm ci
-  invoke_playwright_child "$script" "$authenticated" "$base_url" "$username" "$password" "$@"
+  compose run --rm -w /work/e2e "$playwright_service" npm ci
+  invoke_playwright_child \
+    "$script" "$authenticated" "$playwright_service" "$base_url" "$username" "$password" "$@"
 }
 
 test_e2e_auth() {

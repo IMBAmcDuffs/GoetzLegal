@@ -486,6 +486,8 @@ grep -Fq '<--grep> <two words>' "$auth_record" ||
   fail 'authenticated browser focused arguments were not quoted and forwarded intact'
 grep -Fq '<playwright-auth>' "$auth_record" ||
   fail 'authenticated browser invocation did not use the state-enabled runtime service'
+! grep -Fq '<playwright-auth-local>' "$auth_record" ||
+  fail 'remote authenticated browser invocation used the local host-gateway service'
 [[ -d "$fixture/__dev/playwright/auth-state" ]] || fail 'authenticated browser state directory was not prepared'
 [[ "$(stat -c '%a' "$fixture/__dev/playwright/auth-state")" == '700' ]] ||
   fail 'authenticated browser state directory was not restricted to mode 700'
@@ -560,6 +562,8 @@ grep -Fqx 'GOETZ_E2E_USER=never-export-admin' "$local_auth_record" ||
   fail 'local authenticated browser run did not receive the local WordPress username fallback'
 grep -Fqx 'GOETZ_E2E_PASSWORD=never-export-admin-password' "$local_auth_record" ||
   fail 'local authenticated browser run did not receive the local WordPress password fallback'
+grep -Fq '<playwright-auth-local>' "$local_auth_record" ||
+  fail 'local authenticated browser run did not use the local-only host-gateway service'
 
 for public_command in test:public test:capture; do
   reset_fake_docker
@@ -571,10 +575,31 @@ for public_command in test:public test:capture; do
   assert_public_browser_environment "$public_record"
   grep -Fq '<playwright>' "$public_record" ||
     fail "$public_command did not use the state-free runtime service"
+  ! grep -Fq '<playwright-local>' "$public_record" ||
+    fail "$public_command remote run used the local host-gateway service"
   ! grep -Fq '<playwright-auth>' "$public_record" ||
     fail "$public_command used the authenticated state-enabled runtime service"
   grep -Fq '<--grep> <public words>' "$public_record" ||
     fail "$public_command focused arguments were not quoted and forwarded intact"
+done
+
+for public_command in test:public test:capture; do
+  reset_fake_docker
+  /usr/bin/env -i \
+    HOME="$fixture/home" \
+    PATH="$fixture/bin:/usr/bin:/bin" \
+    GOETZ_BASE_URL=http://localhost:18080 \
+    /bin/bash "$fixture/manager.sh" "$public_command" --grep 'local public words' ||
+    fail "synthetic local browser invocation failed unexpectedly: $public_command"
+  local_public_record="$fixture/bin/docker-record.3"
+  grep -Fq '<playwright-local>' "$local_public_record" ||
+    fail "$public_command local run did not use the local-only host-gateway service"
+  ! grep -Fq '<playwright-auth-local>' "$local_public_record" ||
+    fail "$public_command local run used an authenticated service"
+  for auth_name in GOETZ_E2E_ALLOW_REMOTE GOETZ_E2E_USER GOETZ_E2E_PASSWORD; do
+    ! grep -q "^${auth_name}=" "$local_public_record" ||
+      fail "$public_command local run received an auth-only variable: $auth_name"
+  done
 done
 
 compose_service_block() {
@@ -637,8 +662,10 @@ grep -Fq 'no-new-privileges:true' <<< "$playwright_block" ||
   fail 'Playwright must disable privilege escalation'
 grep -Eq '^[[:space:]]*shm_size:[[:space:]]*' <<< "$playwright_block" ||
   fail 'Playwright must use a private shared-memory allocation'
-grep -Fq 'host.docker.internal:host-gateway' <<< "$playwright_block" ||
-  fail 'Playwright must have the explicit local WordPress bridge route'
+! grep -Fq 'host.docker.internal:host-gateway' <<< "$playwright_block" ||
+  fail 'remote-capable public Playwright must not receive the local host-gateway route'
+! grep -Fq 'GOETZ_COMPOSE_HOST_GATEWAY' <<< "$playwright_block" ||
+  fail 'remote-capable public Playwright must not enable localhost resolver mapping'
 assert_bind_sources_allowlisted playwright \
   ./tests/e2e ./__dev/playwright/public-node-modules ./artifacts/playwright/public
 for required_mount in \
@@ -647,6 +674,41 @@ for required_mount in \
   './artifacts/playwright/public:/work/artifacts'; do
   grep -Fq "$required_mount" <<< "$playwright_block" ||
     fail "Playwright narrow mount is missing: $required_mount"
+done
+
+playwright_local_block="$(compose_service_block playwright-local)"
+! grep -Eq '^[[:space:]]*network_mode:[[:space:]]*host([[:space:]]|$)' <<< "$playwright_local_block" ||
+  fail 'local public Playwright must not share the host network namespace'
+! grep -Eq '^[[:space:]]*ipc:[[:space:]]*host([[:space:]]|$)' <<< "$playwright_local_block" ||
+  fail 'local public Playwright must not share the host IPC namespace'
+grep -Eq '^[[:space:]]*user:[[:space:]]*"?1000:1000"?[[:space:]]*$' <<< "$playwright_local_block" ||
+  fail 'local public Playwright must run as the non-root repository user'
+grep -Eq '^[[:space:]]*read_only:[[:space:]]*true[[:space:]]*$' <<< "$playwright_local_block" ||
+  fail 'local public Playwright root filesystem must be read-only'
+grep -Eq '^[[:space:]]*-[[:space:]]*ALL[[:space:]]*$' <<< "$playwright_local_block" ||
+  fail 'local public Playwright must drop all Linux capabilities'
+grep -Fq 'no-new-privileges:true' <<< "$playwright_local_block" ||
+  fail 'local public Playwright must disable privilege escalation'
+grep -Eq '^[[:space:]]*shm_size:[[:space:]]*' <<< "$playwright_local_block" ||
+  fail 'local public Playwright must use private shared memory'
+grep -Fq 'host.docker.internal:host-gateway' <<< "$playwright_local_block" ||
+  fail 'local public Playwright is missing the explicit host-gateway route'
+grep -Fq 'GOETZ_COMPOSE_HOST_GATEWAY: "1"' <<< "$playwright_local_block" ||
+  fail 'local public Playwright does not enable loopback resolver mapping'
+assert_bind_sources_allowlisted playwright-local \
+  ./tests/e2e ./__dev/playwright/public-node-modules ./artifacts/playwright/public
+for required_mount in \
+  './tests/e2e:/work/e2e:ro' \
+  './__dev/playwright/public-node-modules:/work/e2e/node_modules' \
+  './artifacts/playwright/public:/work/artifacts'; do
+  grep -Fq "$required_mount" <<< "$playwright_local_block" ||
+    fail "local public Playwright narrow mount is missing: $required_mount"
+done
+! grep -Fq 'GOETZ_AUTH_STATE_PATH' <<< "$playwright_local_block" ||
+  fail 'local public Playwright must not receive the authenticated state path'
+for auth_only_name in GOETZ_E2E_ALLOW_REMOTE GOETZ_E2E_USER GOETZ_E2E_PASSWORD; do
+  ! grep -Fq "$auth_only_name" <<< "$playwright_local_block" ||
+    fail "local public Playwright statically defines an auth-only setting: $auth_only_name"
 done
 ! grep -Fq './__dev/playwright:' <<< "$playwright_block" ||
   fail 'public Playwright runtime must not expose authenticated session state'
@@ -670,6 +732,12 @@ grep -Fq 'no-new-privileges:true' <<< "$playwright_auth_block" ||
   fail 'authenticated Playwright must not share the host network namespace'
 ! grep -Eq '^[[:space:]]*ipc:[[:space:]]*host([[:space:]]|$)' <<< "$playwright_auth_block" ||
   fail 'authenticated Playwright must not share the host IPC namespace'
+grep -Eq '^[[:space:]]*shm_size:[[:space:]]*' <<< "$playwright_auth_block" ||
+  fail 'remote-capable authenticated Playwright must use private shared memory'
+! grep -Fq 'host.docker.internal:host-gateway' <<< "$playwright_auth_block" ||
+  fail 'remote-capable authenticated Playwright must not receive the local host-gateway route'
+! grep -Fq 'GOETZ_COMPOSE_HOST_GATEWAY' <<< "$playwright_auth_block" ||
+  fail 'remote-capable authenticated Playwright must not enable localhost resolver mapping'
 assert_bind_sources_allowlisted playwright-auth \
   ./tests/e2e ./__dev/playwright/auth-node-modules ./__dev/playwright/auth-state \
   ./artifacts/playwright/auth
@@ -691,6 +759,39 @@ grep -Fq 'GOETZ_AUTH_STATE_PATH: /work/state/auth-state.json' <<< "$playwright_a
   fail 'public/capture Playwright must not expose authenticated browser dependencies'
 ! grep -Fq './__dev/playwright/public-node-modules:' <<< "$playwright_auth_block" ||
   fail 'authenticated Playwright must not expose public/remote browser dependencies'
+
+playwright_auth_local_block="$(compose_service_block playwright-auth-local)"
+! grep -Eq '^[[:space:]]*network_mode:[[:space:]]*host([[:space:]]|$)' <<< "$playwright_auth_local_block" ||
+  fail 'local authenticated Playwright must not share the host network namespace'
+! grep -Eq '^[[:space:]]*ipc:[[:space:]]*host([[:space:]]|$)' <<< "$playwright_auth_local_block" ||
+  fail 'local authenticated Playwright must not share the host IPC namespace'
+grep -Eq '^[[:space:]]*user:[[:space:]]*"?1000:1000"?[[:space:]]*$' <<< "$playwright_auth_local_block" ||
+  fail 'local authenticated Playwright must run as the non-root repository user'
+grep -Eq '^[[:space:]]*read_only:[[:space:]]*true[[:space:]]*$' <<< "$playwright_auth_local_block" ||
+  fail 'local authenticated Playwright root filesystem must be read-only'
+grep -Eq '^[[:space:]]*-[[:space:]]*ALL[[:space:]]*$' <<< "$playwright_auth_local_block" ||
+  fail 'local authenticated Playwright must drop all Linux capabilities'
+grep -Fq 'no-new-privileges:true' <<< "$playwright_auth_local_block" ||
+  fail 'local authenticated Playwright must disable privilege escalation'
+grep -Eq '^[[:space:]]*shm_size:[[:space:]]*' <<< "$playwright_auth_local_block" ||
+  fail 'local authenticated Playwright must use private shared memory'
+grep -Fq 'host.docker.internal:host-gateway' <<< "$playwright_auth_local_block" ||
+  fail 'local authenticated Playwright is missing the explicit host-gateway route'
+grep -Fq 'GOETZ_COMPOSE_HOST_GATEWAY: "1"' <<< "$playwright_auth_local_block" ||
+  fail 'local authenticated Playwright does not enable loopback resolver mapping'
+assert_bind_sources_allowlisted playwright-auth-local \
+  ./tests/e2e ./__dev/playwright/auth-node-modules ./__dev/playwright/auth-state \
+  ./artifacts/playwright/auth
+for required_mount in \
+  './tests/e2e:/work/e2e:ro' \
+  './__dev/playwright/auth-node-modules:/work/e2e/node_modules' \
+  './__dev/playwright/auth-state:/work/state' \
+  './artifacts/playwright/auth:/work/artifacts'; do
+  grep -Fq "$required_mount" <<< "$playwright_auth_local_block" ||
+    fail "local authenticated Playwright narrow mount is missing: $required_mount"
+done
+grep -Fq 'GOETZ_AUTH_STATE_PATH: /work/state/auth-state.json' <<< "$playwright_auth_local_block" ||
+  fail 'local authenticated Playwright state path is not scoped to its narrow mount'
 
 playwright_installer_block="$(compose_service_block playwright-installer)"
 grep -Eq '^[[:space:]]*user:[[:space:]]*"?0:0"?[[:space:]]*$' <<< "$playwright_installer_block" ||
@@ -737,7 +838,7 @@ for required_mount in \
     fail "Composer narrow mount is missing: $required_mount"
 done
 
-for service in playwright playwright-auth playwright-installer node wpcli composer; do
+for service in playwright playwright-local playwright-auth playwright-auth-local playwright-installer node wpcli composer; do
   service_block="$(compose_service_block "$service")"
   ! grep -Eq '^[[:space:]]*-[[:space:]]+\.:/' <<< "$service_block" ||
     fail "$service must not bind-mount the repository root"
@@ -789,6 +890,12 @@ try {
 }
 NODE
 
+node tests/contracts/auth-login-security.mjs
+grep -Fq 'runAuthenticatedSetup' tests/e2e/global-setup.ts ||
+  fail 'authenticated Playwright global setup does not use the tested lifecycle orchestrator'
+grep -Fq 'guardedWordPressLogin' tests/e2e/helpers/auth-setup.mjs ||
+  fail 'authenticated lifecycle orchestrator does not use the guarded login helper'
+
 [[ -f tests/e2e/helpers/browser.mjs ]] ||
   fail 'Playwright local WordPress browser routing helper is missing'
 grep -Fq 'host.docker.internal' tests/e2e/helpers/browser.mjs ||
@@ -835,8 +942,8 @@ grep -Fq "globalTeardown: './global-teardown.ts'" tests/e2e/playwright.config.ts
 grep -Fq 'cleanupAuthState' tests/e2e/global-teardown.ts ||
   fail 'authenticated Playwright global teardown does not delete session state'
 for auth_state_function in prepareAuthState writePrivateStateAtomic cleanupAuthState; do
-  grep -Fq "$auth_state_function" tests/e2e/global-setup.ts ||
-    fail "authenticated Playwright setup does not use $auth_state_function"
+  grep -Fq "$auth_state_function" tests/e2e/helpers/auth-setup.mjs ||
+    fail "authenticated Playwright lifecycle does not use $auth_state_function"
 done
 grep -Fq 'launchOptions' tests/e2e/global-setup.ts ||
   fail 'authenticated Playwright setup does not preserve project browser routing options'
