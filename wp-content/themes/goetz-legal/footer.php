@@ -13,7 +13,7 @@ $footer_disclaimer = (string) goetz_legal_setting('footer_disclaimer', '');
 $footer_legal_copy = (string) goetz_legal_setting('footer_legal_copy', '');
 $copyright_start_year = (int) goetz_legal_setting('copyright_start_year', 2024);
 $copyright_text = (string) goetz_legal_setting('copyright_text', 'Goetz & Goetz. All Rights Reserved');
-$copyright_dynamic_year = (bool) goetz_legal_setting('copyright_dynamic_year', true);
+$copyright_dynamic_year = (bool) goetz_legal_setting('copyright_dynamic_year', false);
 $current_year = (int) wp_date('Y');
 $copyright_years = $copyright_dynamic_year && $current_year > $copyright_start_year
     ? $copyright_start_year . ' – ' . $current_year
@@ -81,7 +81,7 @@ $copyright_years = $copyright_dynamic_year && $current_year > $copyright_start_y
 
             <div class="site-footer__bottom">
                 <div>
-                    &copy; <?php echo esc_html($copyright_years); ?> &ndash; <?php echo esc_html($copyright_text); ?>
+                    &copy; <?php esc_html_e('Copyright', 'goetz-legal'); ?> <?php echo esc_html($copyright_years); ?> &ndash; <?php echo esc_html($copyright_text); ?>
                 </div>
             </div>
         </div>

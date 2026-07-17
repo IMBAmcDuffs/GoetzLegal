@@ -84,7 +84,7 @@ final class SiteSettingsTest extends TestCase
             'footer_legal_copy'      => 'The hiring of a lawyer is an important decision that should not be based solely upon advertisements. Before you decide, ask us to send you free written information about our qualifications and experience.',
             'copyright_start_year'   => 2024,
             'copyright_text'         => 'Goetz & Goetz. All Rights Reserved',
-            'copyright_dynamic_year' => true,
+            'copyright_dynamic_year' => false,
             'social_image_id'        => 0,
         ], Site_Settings::defaults());
         self::assertCount(19, Site_Settings::defaults());

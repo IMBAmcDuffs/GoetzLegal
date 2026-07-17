@@ -18,6 +18,10 @@
     "imageId": { "type": "number", "default": 0 },
     "profileNewTab": { "type": "boolean", "default": false }
   },
+  "styles": [
+    { "name": "default", "label": "Card", "isDefault": true },
+    { "name": "profile", "label": "Attorney Profile" }
+  ],
   "supports": { "html": false },
   "editorScript": "goetz-site-block-editor",
   "style": "file:./style.css",

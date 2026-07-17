@@ -69,3 +69,117 @@
   color: #fff;
   text-decoration: none;
 }
+
+.goetz-attorney-profile-section {
+  background: #fff;
+  margin: 0;
+  max-width: none;
+  padding: 130px 29.25px 144px;
+}
+
+.goetz-attorney-profile-section + .goetz-cta {
+  margin-top: 1px !important;
+}
+
+.goetz-attorney-card--profile {
+  align-items: start;
+  background: transparent;
+  box-shadow: none;
+  display: grid;
+  gap: 65px;
+  grid-template-columns: 393px minmax(0, 1fr);
+  height: auto;
+  margin-inline: auto;
+  max-width: 1080px;
+  overflow: visible;
+}
+
+.goetz-attorney-card--profile .goetz-attorney-card__image {
+  aspect-ratio: 910 / 660;
+  height: 285px;
+  object-fit: cover;
+  width: 393px;
+}
+
+.goetz-attorney-card--profile .goetz-attorney-card__body {
+  padding: 0;
+  text-align: left;
+}
+
+.goetz-attorney-card--profile .goetz-attorney-card__mark {
+  display: block;
+  height: 39px;
+  margin: 0 0 11px;
+  width: 40px;
+}
+
+.goetz-attorney-card--profile h2 {
+  color: #212529;
+  font-size: 32px;
+  font-weight: 500;
+  letter-spacing: 1px;
+  line-height: 1.1;
+  margin: 0 0 23.6px;
+}
+
+.goetz-attorney-card--profile h2 .goetz-attorney-card__accent {
+  color: #7951a9;
+  font-weight: 700;
+}
+
+.goetz-attorney-card--profile p {
+  color: #212529;
+  font-size: 16px;
+  line-height: 1.65;
+  margin: 0;
+}
+
+.goetz-attorney-card--profile .goetz-attorney-card__links {
+  justify-content: flex-start;
+  margin-top: 13.6px;
+}
+
+.goetz-attorney-card--profile .goetz-attorney-card__links a {
+  background: transparent;
+  border-radius: 0;
+  color: #7951a9;
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: 0;
+  padding: 0;
+  text-transform: none;
+}
+
+.goetz-attorney-card--profile .goetz-attorney-card__links a:hover,
+.goetz-attorney-card--profile .goetz-attorney-card__links a:focus-visible {
+  background: transparent;
+  color: #2d2d2d;
+  text-decoration: none;
+}
+
+@media (max-width: 781px) {
+  .goetz-attorney-profile-section {
+    padding: 130px 29.25px 164px;
+  }
+
+  .goetz-attorney-card--profile {
+    gap: 20px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .goetz-attorney-card--profile .goetz-attorney-card__image {
+    height: auto;
+    width: 100%;
+  }
+
+  .goetz-attorney-card--profile h2 {
+    font-size: 25.6px;
+  }
+}
+
+@media (max-width: 360px) {
+  .goetz-attorney-profile-section {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+}

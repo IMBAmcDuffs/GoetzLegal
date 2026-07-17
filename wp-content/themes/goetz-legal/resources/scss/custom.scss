@@ -906,18 +906,23 @@ body {
 .site-footer__inner {
     margin-inline: auto;
     max-width: var(--goetz-width);
-    padding: 68px 1.5rem 34px;
+    padding: 50px;
+    width: 100%;
 }
 
 .site-footer__grid {
     display: grid;
-    gap: 3rem;
+    gap: 20px;
+}
+
+.site-footer__grid > section:first-child {
+    padding-block: 11.05px;
 }
 
 .site-footer__logo {
     display: block;
     height: auto;
-    margin: 0 0 28px;
+    margin: 0 0 17.5px;
     max-width: 274px;
     width: 100%;
 }
@@ -925,23 +930,23 @@ body {
 .site-footer h3 {
     color: var(--goetz-purple);
     font-family: var(--font-heading);
-    font-size: 1.65rem;
-    font-weight: 700;
-    line-height: 1.2;
+    font-size: 28px;
+    font-weight: 600;
+    line-height: 1.1;
     letter-spacing: .06em;
-    margin: 0 0 1.15rem;
+    margin: 0 0 13.6px;
     text-transform: uppercase;
 }
 
 .site-footer p,
 .site-footer li {
-    color: rgb(255 255 255 / 78%);
-    font-size: 14px;
+    color: rgb(255 255 255 / 58%);
+    font-size: 16px;
     line-height: 1.65;
 }
 
 .site-footer p {
-    margin: 0 0 1rem;
+    margin: 0;
 }
 
 .site-footer a {
@@ -958,10 +963,28 @@ body {
 .site-footer__menu,
 .site-footer__contact-list {
     display: grid;
-    gap: .6rem;
+    gap: 13.6px;
     list-style: none;
     margin: 0;
     padding: 0;
+}
+
+.site-footer__nav {
+    padding-bottom: 13.6px;
+}
+
+.site-footer__grid > section:last-child > p {
+    margin-bottom: 13.6px;
+}
+
+.site-footer__disclaimer p,
+.site-footer__legal-copy p {
+    font-size: 13px;
+    line-height: 1.65;
+}
+
+.site-footer__legal-copy p {
+    margin-bottom: 11.05px;
 }
 
 .site-footer__contact-list li {
@@ -981,14 +1004,15 @@ body {
     align-items: center;
     border-top: 1px solid rgb(255 255 255 / 18%);
     display: block;
-    margin-top: 2.5rem;
-    padding-top: 54px;
+    margin-top: 55px;
+    padding: 43.1px 0;
     text-align: center;
 }
 
 .site-footer__bottom div {
     color: rgb(255 255 255 / 62%);
     font-size: 16px;
+    line-height: 1.65;
     margin: 0;
 }
 
@@ -1000,11 +1024,16 @@ body {
     }
 
     .site-footer__grid {
-        grid-template-columns: 1.3fr .8fr 1fr;
+        column-gap: 64.8px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
 
 @media (min-width: 960px) {
+    .site-header__nav-row {
+        border-top: 1px solid transparent;
+    }
+
     .goetz-practice-band {
         grid-template-columns: 1fr 1fr;
     }
@@ -1043,6 +1072,8 @@ body {
 
 @media (max-width: 959px) {
     .site-header__top {
+        margin-bottom: -1px;
+        min-height: 73px;
         padding-top: 0;
     }
 
@@ -1050,42 +1081,47 @@ body {
         align-items: center;
         justify-content: center;
         min-height: 72px;
-        padding-bottom: .45rem;
-        padding-top: .45rem;
+        padding: 0;
+        width: 85%;
     }
 
     .site-branding-card {
-        height: 74px;
-        left: 1.5rem;
+        height: 80px;
+        justify-content: flex-start;
+        left: 0;
         position: relative;
         top: auto;
-        width: min(266px, calc(100vw - 7.5rem));
+        width: 80%;
     }
 
     .custom-logo {
-        max-height: 70px;
-        max-width: 244px;
+        max-height: 80px;
+        max-width: 100%;
     }
 
     .site-header__nav-row {
-        min-height: 84px;
+        min-height: 81px;
     }
 
     .site-header__nav-inner {
         justify-content: space-between;
-        min-height: 84px;
+        min-height: 81px;
+        padding: 0;
+        padding-top: 1px;
+        width: 85%;
     }
 
     .site-contact-links {
         align-items: center;
         flex-direction: column;
-        gap: .15rem;
+        gap: 0;
         justify-content: center;
     }
 
     .site-contact-links a {
-        font-size: 13px;
+        font-size: 11px;
         font-weight: 700;
+        height: 36px;
     }
 
     .site-contact-links__icon {
@@ -1094,7 +1130,19 @@ body {
     }
 
     .site-menu-toggle {
+        align-items: flex-end;
+        border: 0;
         display: inline-flex;
+        gap: 7px;
+        height: 80px;
+        margin-left: auto;
+        padding: 0;
+        width: 55px;
+    }
+
+    .site-menu-toggle span {
+        height: 3px;
+        width: 35px;
     }
 
     .site-navigation {
@@ -1190,14 +1238,15 @@ body {
     }
 
     .site-footer__inner {
-        padding-inline: 1.75rem;
+        padding: 50px 0;
+        width: 85%;
     }
 
     .site-footer__logo {
-        margin-inline: auto;
+        margin-inline: 0;
     }
 
-    .site-footer__bottom div {
-        line-height: 1.6;
+    .site-footer__bottom {
+        margin-top: 75px;
     }
 }

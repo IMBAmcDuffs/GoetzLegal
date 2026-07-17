@@ -5,9 +5,14 @@
             ? goetz_legal_asset_url('bann-img.jpg', 'https://goetzlegal.com/wp-content/uploads/2022/08/bann-img.jpg')
             : 'https://goetzlegal.com/wp-content/uploads/2022/08/bann-img.jpg';
         $page_hero_style = 'background-image: linear-gradient(rgb(0 0 0 / 50%), rgb(0 0 0 / 50%)), url(' . esc_url($page_hero_url) . ');';
+        $page_hero_title = get_the_title();
+        $page_content = (string) get_post_field('post_content', get_the_ID());
+        if (has_block('goetz/attorney-card', $page_content) && str_contains($page_content, 'is-style-profile')) {
+            $page_hero_title = str_replace('.', '', $page_hero_title);
+        }
         ?>
         <header class="goetz-page-hero" style="<?php echo esc_attr($page_hero_style); ?>">
-            <h1><?php the_title(); ?></h1>
+            <h1><?php echo esc_html($page_hero_title); ?></h1>
         </header>
     <?php endif; ?>
 

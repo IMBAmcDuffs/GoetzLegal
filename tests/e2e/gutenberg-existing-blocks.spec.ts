@@ -239,6 +239,7 @@ async function resetToStableBlocks(page: Page): Promise<void> {
         buttonNewTab: false,
       },
       'goetz/attorney-card': {
+        className: 'is-style-profile',
         name: 'Initial attorney',
         role: 'Initial role',
         bio: 'Initial attorney biography',
@@ -338,6 +339,18 @@ async function chooseImage(page: Page, block: Locator, image: TemporaryImage): P
   await expect(mediaDialog).toBeHidden();
 }
 
+async function ensureSettingsSidebarOpen(page: Page): Promise<void> {
+  const settingsButton = page.getByRole('button', { name: 'Settings', exact: true });
+  await expect(settingsButton).toBeVisible();
+
+  if (await settingsButton.getAttribute('aria-expanded') !== 'true') {
+    await settingsButton.click();
+  }
+
+  await expect(settingsButton).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('region', { name: 'Editor settings' })).toBeVisible();
+}
+
 async function selectBlock(page: Page, name: BlockName): Promise<void> {
   await page.evaluate((blockName) => {
     const wordpress = (globalThis as any).wp;
@@ -350,6 +363,7 @@ async function selectBlock(page: Page, name: BlockName): Promise<void> {
     }
     wordpress.data.dispatch('core/block-editor').selectBlock(block.clientId);
   }, name);
+  await ensureSettingsSidebarOpen(page);
 }
 
 async function labelledField(
@@ -426,6 +440,25 @@ async function expectBlockAttributes(
   const block = blocks.find((candidate) => candidate.name === name);
   expect(block, `${name} must remain in the editor`).toBeDefined();
   expect(block?.attributes).toEqual(expect.objectContaining(expectedAttributes));
+}
+
+async function expectAttorneyProfilePreview(
+  block: Locator,
+  imageUrl: string,
+): Promise<void> {
+  await expect(block).toHaveClass(/\bis-style-profile\b/);
+  await expect(block).toHaveClass(/\bgoetz-editor-preview--attorney-profile\b/);
+  await expect(block).toHaveCSS('display', 'grid');
+  await expect(block).toHaveCSS('box-shadow', 'none');
+
+  const image = block.locator('.goetz-attorney-card__image');
+  await expect(image).toBeVisible();
+  await expect(image).toHaveAttribute('src', imageUrl);
+  await expect(image).toHaveCSS('object-fit', 'cover');
+
+  await expect(block.locator('.goetz-attorney-card__body')).toHaveCSS('text-align', 'left');
+  await expect(block.locator('.goetz-attorney-card__mark')).toBeVisible();
+  await expect(block.locator('.goetz-attorney-card__links')).toBeVisible();
 }
 
 async function readSavedBlocks(page: Page): Promise<SavedBlock[]> {
@@ -517,6 +550,7 @@ test('existing Goetz blocks save, reload, and update through their native editor
       '/jane-final/',
       true,
     );
+    await expectAttorneyProfilePreview(attorney, fixtures.image.sourceUrl);
 
     const cta = await editorBlock(page, 'goetz/cta');
     await selectBlock(page, 'goetz/cta');
@@ -661,6 +695,7 @@ test('existing Goetz blocks save, reload, and update through their native editor
       buttonNewTab: true,
     };
     const expectedAttorney = {
+      className: 'is-style-profile',
       name: 'Jane Final',
       role: 'Final Partner',
       bio: 'Final attorney biography',
@@ -733,6 +768,9 @@ test('existing Goetz blocks save, reload, and update through their native editor
     await expectBlockAttributes(page, 'goetz/cta', expectedCta);
     await expectBlockAttributes(page, 'goetz/faq-list', expectedFaq);
     await expectBlockAttributes(page, 'goetz/resource-links', expectedResources);
+
+    const reloadedAttorney = await editorBlock(page, 'goetz/attorney-card');
+    await expectAttorneyProfilePreview(reloadedAttorney, fixtures.image.sourceUrl);
 
     const reloadedHero = await editorBlock(page, 'goetz/hero');
     await selectBlock(page, 'goetz/hero');

@@ -7,9 +7,59 @@ import { LinkControl } from '../../components/link-control';
 import { MediaControl } from '../../components/media-control';
 
 export function AttorneyCardEdit({ attributes = {}, setAttributes }) {
+  const isProfile = /(?:^|\s)is-style-profile(?:\s|$)/.test(
+    typeof attributes.className === 'string' ? attributes.className : ''
+  );
   const blockProps = useBlockProps({
-    className: 'goetz-editor-preview goetz-editor-preview--attorney-card',
+    className: [
+      'goetz-editor-preview goetz-editor-preview--attorney-card',
+      isProfile
+        ? 'goetz-editor-preview--attorney-profile goetz-attorney-card--profile'
+        : '',
+    ].filter(Boolean).join(' '),
   });
+  const nameField = (
+    <RichText
+      tagName={isProfile ? 'h2' : 'h3'}
+      className={
+        isProfile
+          ? 'goetz-attorney-card__heading'
+          : 'goetz-editor-preview__heading'
+      }
+      aria-label={__('Attorney name', 'goetz-site')}
+      value={attributes.name || ''}
+      allowedFormats={[]}
+      onChange={(name) => setAttributes({ name })}
+    />
+  );
+  const roleField = (
+    <RichText
+      tagName="p"
+      className={
+        isProfile
+          ? 'goetz-attorney-card__role'
+          : 'goetz-editor-preview__eyebrow'
+      }
+      aria-label={__('Attorney role', 'goetz-site')}
+      value={attributes.role || ''}
+      allowedFormats={[]}
+      onChange={(role) => setAttributes({ role })}
+    />
+  );
+  const biographyField = (
+    <RichText
+      tagName="p"
+      className={
+        isProfile
+          ? 'goetz-attorney-card__bio'
+          : 'goetz-editor-preview__content'
+      }
+      aria-label={__('Attorney biography', 'goetz-site')}
+      value={attributes.bio || ''}
+      allowedFormats={[]}
+      onChange={(bio) => setAttributes({ bio })}
+    />
+  );
 
   return (
     <Fragment>
@@ -39,32 +89,46 @@ export function AttorneyCardEdit({ attributes = {}, setAttributes }) {
           />
         </PanelBody>
       </InspectorControls>
-      <article {...blockProps}>
-        <RichText
-          tagName="h3"
-          className="goetz-editor-preview__heading"
-          aria-label={__('Attorney name', 'goetz-site')}
-          value={attributes.name || ''}
-          allowedFormats={[]}
-          onChange={(name) => setAttributes({ name })}
-        />
-        <RichText
-          tagName="p"
-          className="goetz-editor-preview__eyebrow"
-          aria-label={__('Attorney role', 'goetz-site')}
-          value={attributes.role || ''}
-          allowedFormats={[]}
-          onChange={(role) => setAttributes({ role })}
-        />
-        <RichText
-          tagName="p"
-          className="goetz-editor-preview__content"
-          aria-label={__('Attorney biography', 'goetz-site')}
-          value={attributes.bio || ''}
-          allowedFormats={[]}
-          onChange={(bio) => setAttributes({ bio })}
-        />
-      </article>
+      {isProfile ? (
+        <article {...blockProps}>
+          {attributes.imageUrl ? (
+            <img
+              className="goetz-attorney-card__image"
+              src={attributes.imageUrl}
+              alt={attributes.imageAlt || attributes.name || ''}
+            />
+          ) : (
+            <div
+              className="goetz-attorney-card__image-placeholder"
+              aria-hidden="true"
+            >
+              {__('Select an attorney image', 'goetz-site')}
+            </div>
+          )}
+          <div className="goetz-attorney-card__body">
+            <span className="goetz-attorney-card__mark" aria-hidden="true" />
+            {nameField}
+            {roleField}
+            {biographyField}
+            <div className="goetz-attorney-card__links" aria-hidden="true">
+              {attributes.profileUrl ? (
+                <span>{__('Read Full Bio', 'goetz-site')}</span>
+              ) : null}
+              {attributes.email ? (
+                <span>
+                  {__('Email', 'goetz-site')} {attributes.name || ''}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        </article>
+      ) : (
+        <article {...blockProps}>
+          {nameField}
+          {roleField}
+          {biographyField}
+        </article>
+      )}
     </Fragment>
   );
 }

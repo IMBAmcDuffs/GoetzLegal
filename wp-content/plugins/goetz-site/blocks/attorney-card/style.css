@@ -14,8 +14,94 @@
   width: 100%;
 }
 
+.editor-styles-wrapper .goetz-editor-preview--attorney-card.goetz-editor-preview--attorney-profile {
+  align-items: start;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  gap: clamp(32px, 5vw, 65px);
+  grid-template-columns: minmax(260px, 393px) minmax(0, 1fr);
+  margin-inline: auto;
+  max-width: 1080px;
+  padding: 0;
+  width: 100%;
+}
+
+.editor-styles-wrapper .goetz-editor-preview--attorney-profile .goetz-attorney-card__image,
+.editor-styles-wrapper .goetz-editor-preview--attorney-profile .goetz-attorney-card__image-placeholder {
+  aspect-ratio: 910 / 660;
+  display: block;
+  height: auto;
+  object-fit: cover;
+  width: 100%;
+}
+
+.editor-styles-wrapper .goetz-editor-preview--attorney-profile .goetz-attorney-card__image-placeholder {
+  align-items: center;
+  background: #f2f2f2;
+  border: 1px dashed #7951a9;
+  color: #7951a9;
+  display: flex;
+  font-size: 14px;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.editor-styles-wrapper .goetz-editor-preview--attorney-profile .goetz-attorney-card__body {
+  padding: 0;
+  text-align: left;
+}
+
+.editor-styles-wrapper .goetz-editor-preview--attorney-profile .goetz-attorney-card__mark {
+  background: url("../../assets/seed/law-scale-icon-purple.png") center / contain no-repeat;
+  display: block;
+  height: 39px;
+  margin: 0 0 11px;
+  width: 40px;
+}
+
+.editor-styles-wrapper .goetz-editor-preview--attorney-profile .goetz-attorney-card__heading {
+  color: #212529;
+  font-family: Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: clamp(26px, 3vw, 32px);
+  font-weight: 500;
+  letter-spacing: 1px;
+  line-height: 1.1;
+  margin: 0 0 23.6px;
+  text-transform: uppercase;
+}
+
+.editor-styles-wrapper .goetz-editor-preview--attorney-profile .goetz-attorney-card__role {
+  color: #7951a9;
+  font-weight: 700;
+  margin: 0 0 0.75rem;
+}
+
+.editor-styles-wrapper .goetz-editor-preview--attorney-profile .goetz-attorney-card__bio {
+  color: #212529;
+  font-size: 16px;
+  line-height: 1.65;
+  margin: 0;
+}
+
+.editor-styles-wrapper .goetz-editor-preview--attorney-profile .goetz-attorney-card__links {
+  align-items: center;
+  color: #7951a9;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 16px;
+  gap: 0.75rem;
+  justify-content: flex-start;
+  margin-top: 13.6px;
+}
+
 @media (max-width: 781px) {
   .editor-styles-wrapper .goetz-editor-preview--attorney-card {
     grid-template-columns: 1fr;
+  }
+
+  .editor-styles-wrapper .goetz-editor-preview--attorney-card.goetz-editor-preview--attorney-profile {
+    gap: 20px;
   }
 }

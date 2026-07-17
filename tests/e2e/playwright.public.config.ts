@@ -12,6 +12,7 @@ export default defineConfig({
     'practice-animation.spec.ts',
     'navigation-accessibility.spec.ts',
     'homepage-layout.spec.ts',
+    'attorney-profile.spec.ts',
     'seo.spec.ts',
     'visual.spec.ts',
     'frontend.spec.ts',
