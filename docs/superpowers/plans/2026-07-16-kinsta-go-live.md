@@ -166,7 +166,7 @@ Expected: local export, upload, remote import, cache flush, and rewrite flush al
 Run:
 
 ```bash
-SSH_AUTH_SOCK=/tmp/goetz-ssh-agent.sock ssh -p 43854 goetzgoetz@163.192.209.112 'set -eu; cd /www/goetzgoetz_755/public; wp plugin is-installed wpforms-lite || wp plugin install wpforms-lite --version=1.10.0.4; wp plugin activate wpforms-lite wordpress-seo goetz-migration; wp theme activate goetz-legal; wp rewrite structure "/%postname%/" --hard; wp rewrite flush --hard; wp cache flush; wp kinsta cache purge --all 2>/dev/null || true; test ! -e goetzlegal-import.sql'
+SSH_AUTH_SOCK=/tmp/goetz-ssh-agent.sock ssh -p 43854 goetzgoetz@163.192.209.112 'set -eu; cd /www/goetzgoetz_755/public; wp plugin is-installed wpforms-lite || wp plugin install https://downloads.wordpress.org/plugin/wpforms-lite.1.10.0.4.zip --force; wp plugin activate wpforms-lite wordpress-seo goetz-migration; wp theme activate goetz-legal; wp rewrite structure "/%postname%/" --hard; wp rewrite flush --hard; wp cache flush; wp kinsta cache purge --all 2>/dev/null || true; test ! -e goetzlegal-import.sql'
 ```
 
 Expected: required plugins and theme are active, rewrites/caches flush, and no import dump remains in the public directory.
