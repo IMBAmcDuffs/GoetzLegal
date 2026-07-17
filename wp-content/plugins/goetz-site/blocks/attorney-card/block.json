@@ -14,8 +14,11 @@
     "email": { "type": "string", "default": "" },
     "imageUrl": { "type": "string", "default": "" },
     "imageAlt": { "type": "string", "default": "" },
-    "profileUrl": { "type": "string", "default": "" }
+    "profileUrl": { "type": "string", "default": "" },
+    "imageId": { "type": "number", "default": 0 },
+    "profileNewTab": { "type": "boolean", "default": false }
   },
+  "supports": { "html": false },
   "editorScript": "goetz-site-block-editor",
   "style": "file:./style.css",
   "viewStyle": "file:./view.css",

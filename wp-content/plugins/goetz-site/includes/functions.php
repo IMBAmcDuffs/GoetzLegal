@@ -74,6 +74,66 @@ function editor_assets_ready(): bool
         && is_readable(GOETZ_SITE_PATH . 'build/index.asset.php')
         && wp_script_is(Blocks::EDITOR_HANDLE, 'registered');
 }
+
+function normalize_boolean(mixed $value, bool $fallback = false): bool
+{
+    if (is_bool($value)) {
+        return $value;
+    }
+
+    if (is_int($value)) {
+        return $value === 1 ? true : ($value === 0 ? false : $fallback);
+    }
+
+    if (is_string($value)) {
+        $normalized = strtolower(trim($value));
+        if (in_array($normalized, ['1', 'true'], true)) {
+            return true;
+        }
+        if (in_array($normalized, ['0', 'false'], true)) {
+            return false;
+        }
+    }
+
+    return $fallback;
+}
+
+function valid_image_attachment_id(mixed $value): int
+{
+    $attachment_id = absint($value);
+    if ($attachment_id < 1
+        || get_post_type($attachment_id) !== 'attachment'
+        || ! wp_attachment_is_image($attachment_id)) {
+        return 0;
+    }
+
+    return $attachment_id;
+}
+
+function heading_markup(string $value): string
+{
+    return wp_kses($value, [
+        'strong' => [],
+        'b'      => [],
+        'em'     => [],
+        'br'     => [],
+    ]);
+}
+
+function rich_text_markup(string $value): string
+{
+    return wp_kses($value, [
+        'strong' => [],
+        'b'      => [],
+        'em'     => [],
+        'br'     => [],
+        'a'      => [
+            'href'   => true,
+            'target' => true,
+            'rel'    => true,
+        ],
+    ]);
+}
 }
 
 namespace {

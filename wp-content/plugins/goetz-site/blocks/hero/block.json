@@ -14,8 +14,11 @@
     "imageUrl": { "type": "string", "default": "" },
     "imageAlt": { "type": "string", "default": "" },
     "buttonText": { "type": "string", "default": "Learn More About Us" },
-    "buttonUrl": { "type": "string", "default": "/james-l-goetz/" }
+    "buttonUrl": { "type": "string", "default": "/james-l-goetz/" },
+    "imageId": { "type": "number", "default": 0 },
+    "buttonNewTab": { "type": "boolean", "default": false }
   },
+  "supports": { "html": false },
   "editorScript": "goetz-site-block-editor",
   "style": "file:./style.css",
   "viewStyle": "file:./view.css",

@@ -1,6 +1,37 @@
-.goetz-editor-card {
+.editor-styles-wrapper .goetz-editor-preview--resource-links {
+  background: #fff;
   border: 1px solid #d9dce3;
-  padding: 16px;
-  font-weight: 700;
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(0, 1.2fr);
+  padding: 24px;
 }
 
+.editor-styles-wrapper .goetz-editor-preview--resource-links .goetz-editor-media-control img {
+  display: block;
+  height: auto;
+  width: 100%;
+}
+
+.editor-styles-wrapper .goetz-editor-preview--resource-links .goetz-editor-repeater,
+.editor-styles-wrapper .goetz-editor-preview--resource-links .goetz-editor-repeater__item {
+  display: grid;
+  gap: 16px;
+}
+
+.editor-styles-wrapper .goetz-editor-preview--resource-links .goetz-editor-repeater__item {
+  border: 1px solid #e6e8ee;
+  padding: 16px;
+}
+
+.editor-styles-wrapper .goetz-editor-preview--resource-links .goetz-editor-repeater__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 781px) {
+  .editor-styles-wrapper .goetz-editor-preview--resource-links {
+    grid-template-columns: 1fr;
+  }
+}

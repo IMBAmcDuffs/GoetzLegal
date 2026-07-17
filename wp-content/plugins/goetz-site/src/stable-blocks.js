@@ -1,25 +1,28 @@
-import { useBlockProps } from '@wordpress/block-editor';
-import { createElement } from '@wordpress/element';
-
 import attorneyCard from '../blocks/attorney-card/block.json';
 import cta from '../blocks/cta/block.json';
 import faqList from '../blocks/faq-list/block.json';
 import hero from '../blocks/hero/block.json';
 import resourceLinks from '../blocks/resource-links/block.json';
+import { AttorneyCardEdit } from './blocks/attorney-card/edit';
+import { CtaEdit } from './blocks/cta/edit';
+import { FaqListEdit } from './blocks/faq-list/edit';
+import { HeroEdit } from './blocks/hero/edit';
+import { ResourceLinksEdit } from './blocks/resource-links/edit';
 
 export const stableBlocks = [attorneyCard, cta, faqList, hero, resourceLinks];
 
-export function StableBlockEdit({ name }) {
-  const metadata = stableBlocks.find((block) => block.name === name);
-  const blockProps = useBlockProps({ className: 'goetz-editor-card' });
-
-  return createElement('div', blockProps, metadata ? metadata.title : 'Goetz block');
-}
+const editors = {
+  'goetz/attorney-card': AttorneyCardEdit,
+  'goetz/cta': CtaEdit,
+  'goetz/faq-list': FaqListEdit,
+  'goetz/hero': HeroEdit,
+  'goetz/resource-links': ResourceLinksEdit,
+};
 
 export function registerStableBlocks(registerBlockType) {
   stableBlocks.forEach(({ name }) => {
     registerBlockType(name, {
-      edit: StableBlockEdit,
+      edit: editors[name],
       save: () => null,
     });
   });

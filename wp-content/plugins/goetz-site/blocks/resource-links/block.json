@@ -10,8 +10,10 @@
   "attributes": {
     "groups": { "type": "array", "default": [] },
     "imageUrl": { "type": "string", "default": "" },
-    "imageAlt": { "type": "string", "default": "" }
+    "imageAlt": { "type": "string", "default": "" },
+    "imageId": { "type": "number", "default": 0 }
   },
+  "supports": { "html": false },
   "editorScript": "goetz-site-block-editor",
   "style": "file:./style.css",
   "viewStyle": "file:./view.css",

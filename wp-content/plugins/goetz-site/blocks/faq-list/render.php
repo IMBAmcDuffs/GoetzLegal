@@ -1,16 +1,25 @@
 <?php
-$items = isset($attributes['items']) && is_array($attributes['items']) ? $attributes['items'] : array();
+
+$items = isset($attributes['items']) && is_array($attributes['items'])
+    ? array_values($attributes['items'])
+    : [];
 ?>
-<div <?php echo get_block_wrapper_attributes(array('class' => 'goetz-faq-list')); ?>>
+<div <?php echo get_block_wrapper_attributes(['class' => 'goetz-faq-list']); ?>>
     <?php foreach ($items as $item): ?>
         <?php
-        $question = isset($item['question']) ? (string) $item['question'] : '';
-        $answer   = isset($item['answer']) ? (string) $item['answer'] : '';
+        if (! is_array($item)) {
+            continue;
+        }
+        $question = isset($item['question']) && is_scalar($item['question'])
+            ? (string) $item['question']
+            : '';
+        $answer = isset($item['answer']) && is_scalar($item['answer'])
+            ? \Goetz\Site\rich_text_markup((string) $item['answer'])
+            : '';
         ?>
         <section class="goetz-faq-list__item">
             <h2><?php echo esc_html($question); ?></h2>
-            <?php echo wp_kses_post(wpautop($answer)); ?>
+            <?php echo wpautop($answer); ?>
         </section>
     <?php endforeach; ?>
 </div>
-

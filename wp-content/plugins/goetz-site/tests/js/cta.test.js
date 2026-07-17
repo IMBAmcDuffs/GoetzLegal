@@ -1,0 +1,91 @@
+jest.mock('@wordpress/block-editor', () => ({
+  InspectorControls: 'InspectorControls',
+  RichText: 'RichText',
+  URLInputButton: 'URLInputButton',
+  MediaUpload: 'MediaUpload',
+  MediaUploadCheck: 'MediaUploadCheck',
+  useBlockProps: jest.fn((props) => props),
+}));
+jest.mock('@wordpress/components', () => ({
+  BaseControl: 'BaseControl',
+  Button: 'Button',
+  PanelBody: 'PanelBody',
+  TextControl: 'TextControl',
+  ToggleControl: 'ToggleControl',
+}));
+jest.mock('@wordpress/element', () => ({
+  Fragment: 'Fragment',
+  createElement: (...args) => require('./helpers').createElement(...args),
+}));
+jest.mock('@wordpress/i18n', () => ({ __: (value) => value }));
+
+import { CtaEdit, save } from '../../src/blocks/cta/edit';
+import { findByLabel } from './helpers';
+
+describe('CTA editor', () => {
+  test('renders current copy and preserves the button label when its link changes', () => {
+    const setAttributes = jest.fn();
+    const tree = CtaEdit({
+      attributes: {
+        eyebrow: 'Current eyebrow',
+        heading: 'Current <em>heading</em>',
+        buttonText: 'Keep this label',
+        buttonUrl: '/contact/',
+        buttonNewTab: false,
+      },
+      setAttributes,
+    });
+
+    expect(findByLabel(tree, 'CTA eyebrow').props.value).toBe('Current eyebrow');
+    expect(findByLabel(tree, 'CTA heading').props.value).toBe(
+      'Current <em>heading</em>'
+    );
+    expect(findByLabel(tree, 'CTA button text').props.value).toBe('Keep this label');
+
+    findByLabel(tree, 'CTA heading').props.onChange('Changed <strong>heading</strong>');
+    expect(setAttributes).toHaveBeenLastCalledWith({
+      heading: 'Changed <strong>heading</strong>',
+    });
+
+    findByLabel(tree, 'CTA button link').props.onChange({
+      url: '/consultation/',
+      newTab: true,
+    });
+    expect(setAttributes).toHaveBeenLastCalledWith({
+      buttonUrl: '/consultation/',
+      buttonNewTab: true,
+    });
+    expect(setAttributes).not.toHaveBeenCalledWith(
+      expect.objectContaining({ buttonText: expect.anything() })
+    );
+  });
+
+  test('maps decorative media selection and removal to CTA attributes', () => {
+    const setAttributes = jest.fn();
+    const tree = CtaEdit({ attributes: {}, setAttributes });
+
+    findByLabel(tree, 'CTA background image').props.onChange({
+      imageId: 31,
+      imageUrl: 'https://example.test/background.jpg',
+      imageAlt: '',
+    });
+    expect(setAttributes).toHaveBeenLastCalledWith({
+      backgroundImageId: 31,
+      backgroundImageUrl: 'https://example.test/background.jpg',
+    });
+
+    findByLabel(tree, 'CTA background image').props.onChange({
+      imageId: 0,
+      imageUrl: '',
+      imageAlt: '',
+    });
+    expect(setAttributes).toHaveBeenLastCalledWith({
+      backgroundImageId: 0,
+      backgroundImageUrl: '',
+    });
+  });
+
+  test('is dynamic', () => {
+    expect(save()).toBeNull();
+  });
+});

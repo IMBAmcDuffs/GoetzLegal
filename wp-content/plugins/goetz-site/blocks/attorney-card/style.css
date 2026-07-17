@@ -1,6 +1,21 @@
-.goetz-editor-card {
+.editor-styles-wrapper .goetz-editor-preview--attorney-card {
+  background: #fff;
   border: 1px solid #d9dce3;
-  padding: 16px;
-  font-weight: 700;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 12%);
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(180px, 0.75fr) minmax(0, 1.25fr);
+  padding: 24px;
 }
 
+.editor-styles-wrapper .goetz-editor-preview--attorney-card .goetz-editor-media-control img {
+  display: block;
+  height: auto;
+  width: 100%;
+}
+
+@media (max-width: 781px) {
+  .editor-styles-wrapper .goetz-editor-preview--attorney-card {
+    grid-template-columns: 1fr;
+  }
+}

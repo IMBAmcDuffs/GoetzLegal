@@ -1,6 +1,27 @@
-.goetz-editor-card {
-  border: 1px solid #d9dce3;
-  padding: 16px;
-  font-weight: 700;
+.editor-styles-wrapper .goetz-editor-preview--hero {
+  align-items: center;
+  background: #2d2d2d;
+  color: #fff;
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.8fr);
+  padding: 32px;
 }
 
+.editor-styles-wrapper .goetz-editor-preview--hero .goetz-editor-media-control img {
+  aspect-ratio: 1;
+  border-radius: 999px;
+  display: block;
+  object-fit: cover;
+  width: 100%;
+}
+
+.editor-styles-wrapper .goetz-editor-preview--hero .block-editor-rich-text__editable {
+  color: inherit;
+}
+
+@media (max-width: 781px) {
+  .editor-styles-wrapper .goetz-editor-preview--hero {
+    grid-template-columns: 1fr;
+  }
+}

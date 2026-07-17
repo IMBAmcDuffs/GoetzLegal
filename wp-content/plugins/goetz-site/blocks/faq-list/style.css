@@ -1,6 +1,16 @@
-.goetz-editor-card {
-  border: 1px solid #d9dce3;
-  padding: 16px;
-  font-weight: 700;
+.editor-styles-wrapper .goetz-editor-preview--faq-list {
+  display: grid;
+  gap: 20px;
 }
 
+.editor-styles-wrapper .goetz-editor-preview--faq-list .goetz-editor-repeater__item {
+  border: 1px solid #d9dce3;
+  padding: 20px;
+}
+
+.editor-styles-wrapper .goetz-editor-preview--faq-list .goetz-editor-repeater__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
