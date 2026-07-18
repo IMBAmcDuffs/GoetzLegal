@@ -123,9 +123,33 @@ require_single_site() {
   [[ "$state" == 'no' ]] || die 'multisite is not supported by this release toolchain'
 }
 assert_archiveable_tree() {
-  local path="$1"
-  [[ -z "$(find "$path" -xdev ! -type d ! -type f -print -quit)" ]] ||
-    die "backup source contains an unsupported non-file entry: $path"
+  local path="$1" offender
+  offender="$(find "$path" -xdev ! -type d ! -type f -print -quit)" ||
+    die "could not inspect backup source entry types: $path"
+  [[ -z "$offender" ]] || die "backup source contains an unsupported non-file entry: $path"
+}
+verify_public_tree_permissions() {
+  local tree="$1" offender
+  case "$tree" in
+    "$site/wp-content/uploads"|\
+    "$site/wp-content/themes/goetz-legal"|\
+    "$site/wp-content/plugins/goetz-site"|\
+    "$site/wp-content/plugins/goetz-migration"|\
+    "$site/wp-content/plugins/wordpress-seo"|\
+    "$site/wp-content/plugins/wpforms-lite") ;;
+    *) die "public permission target is not allowlisted: $tree" ;;
+  esac
+  assert_physical_dir "$tree" "$tree"
+  assert_archiveable_tree "$tree"
+  offender="$(find "$tree" -xdev -type f -links +1 -print -quit)" ||
+    die "could not inspect public hard links: $tree"
+  [[ -z "$offender" ]] || die "public tree contains a hard-linked file: $tree"
+  offender="$(find "$tree" -xdev -type d ! -perm 0755 -print -quit)" ||
+    die "could not verify public directory permissions: $tree"
+  [[ -z "$offender" ]] || die "public directory permissions are not exactly 0755: $tree"
+  offender="$(find "$tree" -xdev -type f ! -perm 0644 -print -quit)" ||
+    die "could not verify public file permissions: $tree"
+  [[ -z "$offender" ]] || die "public file permissions are not exactly 0644: $tree"
 }
 
 [[ "$site" == '/www/goetzgoetz_755/public' ]]
@@ -184,6 +208,15 @@ if [[ "$purpose" == 'pre-domain-cutover' ]]; then
   (( ${#current_lines[@]} == 8 )) || die 'pre-domain-cutover requires the current release receipt schema'
   [[ "${current_lines[1]}" == "release_commit=$release_sha" ]]
   [[ "${current_lines[2]}" == "release_manifest_sha256=$release_digest" ]]
+  for public_tree in \
+    "$site/wp-content/uploads" \
+    "$site/wp-content/themes/goetz-legal" \
+    "$site/wp-content/plugins/goetz-site" \
+    "$site/wp-content/plugins/goetz-migration" \
+    "$site/wp-content/plugins/wordpress-seo" \
+    "$site/wp-content/plugins/wpforms-lite"; do
+    verify_public_tree_permissions "$public_tree"
+  done
 fi
 
 write_phase preflight_complete

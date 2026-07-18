@@ -77,6 +77,64 @@ assert_target() {
     assert_physical_dir "$target" "$expected"
   fi
 }
+normalize_public_tree() {
+  local tree="$1" offender
+  case "$tree" in
+    "$site/wp-content/uploads"|\
+    "$site/wp-content/themes/goetz-legal"|\
+    "$site/wp-content/plugins/goetz-site"|\
+    "$site/wp-content/plugins/goetz-migration"|\
+    "$site/wp-content/plugins/wordpress-seo"|\
+    "$site/wp-content/plugins/wpforms-lite") ;;
+    *) die "public permission target is not allowlisted: $tree"; return ;;
+  esac
+  assert_physical_dir "$tree" "$tree" || return
+  if ! offender="$(find "$tree" -xdev ! -type d ! -type f -print -quit)"; then
+    die "could not inspect public entry types: $tree"
+    return
+  fi
+  if [[ -n "$offender" ]]; then
+    die "public tree contains an unsupported non-file entry: $tree"
+    return
+  fi
+  if ! offender="$(find "$tree" -xdev -type f -links +1 -print -quit)"; then
+    die "could not inspect public hard links: $tree"
+    return
+  fi
+  if [[ -n "$offender" ]]; then
+    die "public tree contains a hard-linked file: $tree"
+    return
+  fi
+  find "$tree" -xdev -type d -exec chmod 0755 -- {} + || return
+  find "$tree" -xdev -type f -exec chmod 0644 -- {} + || return
+  if ! offender="$(find "$tree" -xdev -type d ! -perm 0755 -print -quit)"; then
+    die "could not verify public directory permissions: $tree"
+    return
+  fi
+  if [[ -n "$offender" ]]; then
+    die "public directory permissions are not exactly 0755: $tree"
+    return
+  fi
+  if ! offender="$(find "$tree" -xdev -type f ! -perm 0644 -print -quit)"; then
+    die "could not verify public file permissions: $tree"
+    return
+  fi
+  if [[ -n "$offender" ]]; then
+    die "public file permissions are not exactly 0644: $tree"
+    return
+  fi
+}
+normalize_managed_code_permissions() {
+  local tree
+  for tree in \
+    "$site/wp-content/themes/goetz-legal" \
+    "$site/wp-content/plugins/goetz-site" \
+    "$site/wp-content/plugins/goetz-migration" \
+    "$site/wp-content/plugins/wordpress-seo" \
+    "$site/wp-content/plugins/wpforms-lite"; do
+    if [[ -e "$tree" || -L "$tree" ]]; then normalize_public_tree "$tree" || return; fi
+  done
+}
 write_phase() {
   local phase="$1"
   local receipt="$private/operations/rollback-$backup_id.status"
@@ -152,8 +210,16 @@ preflight_root() {
   printf '%s\t%s\t%s\t%s\n' "$relative_root" "$state" "$archive_name" "$target"
 }
 scan_public_dumps() {
-  ! find "$site" -xdev -type f \( -name '*.sql' -o -name '*.sql.gz' -o -name '*.dump' -o -name '*.bak' \
-    -o -name 'release.json' -o -name 'RELEASE-MANIFEST.sha256' -o -name '.env*' \) -print -quit | grep -q .
+  local offender
+  if ! offender="$(find "$site" -xdev -type f \( -name '*.sql' -o -name '*.sql.gz' -o -name '*.dump' -o -name '*.bak' \
+    -o -name 'release.json' -o -name 'RELEASE-MANIFEST.sha256' -o -name '.env*' \) -print -quit)"; then
+    die 'could not inspect the public tree for sensitive files'
+    return
+  fi
+  if [[ -n "$offender" ]]; then
+    die "sensitive file is exposed in the public tree: $offender"
+    return
+  fi
 }
 smoke_exact_route() {
   local route="$1" effective
@@ -170,7 +236,7 @@ smoke_exact_route() {
 [[ "$backup" == /www/goetzgoetz_755/private/backups/* && "$backup" != '/www/goetzgoetz_755/private/backups/' ]]
 backup_id="${backup##*/}"
 [[ "$backup_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ && "$expected_backup_hash" =~ ^[0-9a-f]{64}$ ]]
-for command_name in wp rsync tar gzip sha256sum find readlink flock curl awk cmp mktemp; do
+for command_name in wp rsync tar gzip sha256sum find readlink flock curl awk cmp mktemp chmod; do
   command -v "$command_name" >/dev/null 2>&1 || die "required command unavailable: $command_name"
 done
 assert_physical_dir "$site" '/www/goetzgoetz_755/public'
@@ -216,6 +282,7 @@ assert_physical_dir "$private/operations" '/www/goetzgoetz_755/private/operation
 if [[ -e "$private/state" || -L "$private/state" ]]; then
   assert_physical_dir "$private/state" '/www/goetzgoetz_755/private/state'
 fi
+assert_target "$site/wp-content/uploads" '/www/goetzgoetz_755/public/wp-content/uploads'
 preflight_data="$({
   preflight_root 'wp-content/plugins/goetz-site' 'code-plugin-goetz-site.tar.gz' "$site/wp-content/plugins/goetz-site"
   preflight_root 'wp-content/themes/goetz-legal' 'code-theme-goetz-legal.tar.gz' "$site/wp-content/themes/goetz-legal"
@@ -231,6 +298,7 @@ if [[ "$mode" == 'dry-run' ]]; then
     printf 'would_restore_code=%s state=%s archive=%s target=%s\n' "$relative" "$state" "$archive" "$target"
   done <<< "$preflight_data"
   printf 'would_restore_uploads=%s -> %s\n' "$backup/uploads.tar.gz" "$site/wp-content/uploads"
+  printf 'would_normalize_public_permissions=directories:0755,files:0644\n'
   printf 'would_restore_database=%s\n' "$backup/database.sql"
   printf 'would_verify_state=theme,plugins,must-use,home,siteurl\n'
   printf 'would_flush=rewrite,object-cache,kinsta-cache\n'
@@ -335,6 +403,10 @@ else
 fi
 rsync --archive --delete-delay --checksum "$uploads_source/" "$site/wp-content/uploads/"
 
+write_phase normalizing_public_permissions
+normalize_managed_code_permissions
+normalize_public_tree "$site/wp-content/uploads"
+
 write_phase restoring_database
 wp --path="$site" db import "$backup/database.sql"
 
@@ -375,6 +447,9 @@ write_phase smoke
 for route in '/' '/james-l-goetz/' '/gregory-w-goetz/' '/staff/' '/questions/' '/links/' '/contact/'; do
   smoke_exact_route "$route"
 done
+write_phase finalizing_public_permissions
+normalize_managed_code_permissions
+normalize_public_tree "$site/wp-content/uploads"
 write_phase complete
 trap - ERR HUP INT TERM
 REMOTE

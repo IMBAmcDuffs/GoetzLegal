@@ -185,6 +185,71 @@ assert_target() {
   assert_physical_dir "$parent" "$parent"
   if [[ -e "$target" || -L "$target" ]]; then assert_physical_dir "$target" "$expected"; fi
 }
+normalize_public_tree() {
+  local tree="$1" offender
+  case "$tree" in
+    "$site/wp-content/uploads"|\
+    "$site/wp-content/themes/goetz-legal"|\
+    "$site/wp-content/plugins/goetz-site"|\
+    "$site/wp-content/plugins/goetz-migration"|\
+    "$site/wp-content/plugins/wordpress-seo"|\
+    "$site/wp-content/plugins/wpforms-lite") ;;
+    *) die "public permission target is not allowlisted: $tree"; return ;;
+  esac
+  assert_physical_dir "$tree" "$tree" || return
+  if ! offender="$(find "$tree" -xdev ! -type d ! -type f -print -quit)"; then
+    die "could not inspect public entry types: $tree"
+    return
+  fi
+  if [[ -n "$offender" ]]; then
+    die "public tree contains an unsupported non-file entry: $tree"
+    return
+  fi
+  if ! offender="$(find "$tree" -xdev -type f -links +1 -print -quit)"; then
+    die "could not inspect public hard links: $tree"
+    return
+  fi
+  if [[ -n "$offender" ]]; then
+    die "public tree contains a hard-linked file: $tree"
+    return
+  fi
+  find "$tree" -xdev -type d -exec chmod 0755 -- {} + || return
+  find "$tree" -xdev -type f -exec chmod 0644 -- {} + || return
+  if ! offender="$(find "$tree" -xdev -type d ! -perm 0755 -print -quit)"; then
+    die "could not verify public directory permissions: $tree"
+    return
+  fi
+  if [[ -n "$offender" ]]; then
+    die "public directory permissions are not exactly 0755: $tree"
+    return
+  fi
+  if ! offender="$(find "$tree" -xdev -type f ! -perm 0644 -print -quit)"; then
+    die "could not verify public file permissions: $tree"
+    return
+  fi
+  if [[ -n "$offender" ]]; then
+    die "public file permissions are not exactly 0644: $tree"
+    return
+  fi
+}
+normalize_managed_code_permissions() {
+  local tree
+  for tree in \
+    "$site/wp-content/themes/goetz-legal" \
+    "$site/wp-content/plugins/goetz-site" \
+    "$site/wp-content/plugins/goetz-migration" \
+    "$site/wp-content/plugins/wordpress-seo" \
+    "$site/wp-content/plugins/wpforms-lite"; do
+    if [[ -e "$tree" || -L "$tree" ]]; then normalize_public_tree "$tree" || return; fi
+  done
+}
+normalize_runtime_public_permissions() {
+  normalize_managed_code_permissions || return
+  if [[ ! -e "$site/wp-content/uploads" && ! -L "$site/wp-content/uploads" ]]; then
+    mkdir -m 0755 "$site/wp-content/uploads" || return
+  fi
+  normalize_public_tree "$site/wp-content/uploads"
+}
 write_phase() {
   local phase="$1" receipt="$private/operations/deploy-$release_sha-$backup_id.status"
   local temporary
@@ -266,12 +331,14 @@ restore_code_packet() {
   while IFS=$'\t' read -r relative state archive target; do
     restore_code_root "$relative" "$state" "$archive" "$target" || return
   done < "$preflight_file"
+  normalize_managed_code_permissions
 }
 restore_packet() {
   restore_code_packet || return
   mkdir -p "$site/wp-content/uploads" || return
   assert_physical_dir "$site/wp-content/uploads" '/www/goetzgoetz_755/public/wp-content/uploads' || return
   rsync --archive --delete-delay --checksum "$restore_work/uploads-packet/wp-content/uploads/" "$site/wp-content/uploads/" || return
+  normalize_public_tree "$site/wp-content/uploads" || return
   wp --path="$site" db import "$backup/database.sql" || return
   restore_release_state || return
   wp --path="$site" rewrite flush --hard || return
@@ -279,6 +346,7 @@ restore_packet() {
   wp --path="$site" kinsta cache purge --all 2>/dev/null || return
   [[ "$(wp --path="$site" option get home)" == "$staging" ]] || return
   [[ "$(wp --path="$site" option get siteurl)" == "$staging" ]] || return
+  normalize_runtime_public_permissions || return
 }
 cleanup_work() {
   if [[ -n "$restore_work" && -d "$restore_work" && ! -L "$restore_work" ]]; then
@@ -351,8 +419,16 @@ json_status() {
   ' "$allowed" emit
 }
 scan_public_dumps() {
-  ! find "$site" -xdev -type f \( -name '*.sql' -o -name '*.sql.gz' -o -name '*.dump' -o -name '*.bak' \
-    -o -name 'release.json' -o -name 'RELEASE-MANIFEST.sha256' -o -name '.env*' \) -print -quit | grep -q .
+  local offender
+  if ! offender="$(find "$site" -xdev -type f \( -name '*.sql' -o -name '*.sql.gz' -o -name '*.dump' -o -name '*.bak' \
+    -o -name 'release.json' -o -name 'RELEASE-MANIFEST.sha256' -o -name '.env*' \) -print -quit)"; then
+    die 'could not inspect the public tree for sensitive files'
+    return
+  fi
+  if [[ -n "$offender" ]]; then
+    die "sensitive file is exposed in the public tree: $offender"
+    return
+  fi
 }
 smoke_exact_route() {
   local route="$1" effective
@@ -416,7 +492,7 @@ scan_debug_checkpoint() {
 backup_id="${backup##*/}"
 [[ "$backup_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]
 [[ "$release_sha" =~ ^[0-9a-f]{40}$ && "$expected_backup_hash" =~ ^[0-9a-f]{64}$ && "$expected_release_hash" =~ ^[0-9a-f]{64}$ ]]
-for command_name in wp php rsync tar gzip sha256sum find readlink flock curl awk sort stat head tail grep mktemp; do
+for command_name in wp php rsync tar gzip sha256sum find readlink flock curl awk sort stat head tail grep mktemp chmod; do
   command -v "$command_name" >/dev/null 2>&1 || die "required command unavailable: $command_name"
 done
 assert_physical_dir "$site" '/www/goetzgoetz_755/public'
@@ -634,6 +710,10 @@ validate_json_status "$seo_first" 'configured,noop'
 seo_noop="$(wp --path="$site" goetz-site seo configure --strict --format=json)"
 validate_json_status "$seo_noop" 'noop'
 wp --path="$site" yoast index --reindex --skip-confirmation
+
+write_phase normalizing_public_permissions
+normalize_runtime_public_permissions
+
 wp --path="$site" rewrite flush --hard
 wp --path="$site" cache flush
 wp --path="$site" kinsta cache purge --all 2>/dev/null
@@ -646,6 +726,8 @@ scan_debug_checkpoint
 for route in '/' '/james-l-goetz/' '/gregory-w-goetz/' '/staff/' '/questions/' '/links/' '/contact/'; do
   smoke_exact_route "$route"
 done
+write_phase finalizing_public_permissions
+normalize_runtime_public_permissions
 scan_debug_checkpoint
 
 current_tmp="$(mktemp "$private/state/.current-release.XXXXXX")"

@@ -21,6 +21,31 @@ assert_not_contains() {
   ! grep -Fq -- "$forbidden" "$path" || fail "$path contains forbidden text: $forbidden"
 }
 
+assert_public_tree_permissions() {
+  local tree="$1"
+  local context="$2"
+  [[ -d "$tree" && ! -L "$tree" ]] || fail "$context left a missing or redirected public tree: $tree"
+  ! find "$tree" -xdev -type d ! -perm 0755 -print -quit | grep -q . ||
+    fail "$context left a non-0755 public directory: $tree"
+  ! find "$tree" -xdev -type f ! -perm 0644 -print -quit | grep -q . ||
+    fail "$context left a non-0644 public file: $tree"
+}
+
+assert_release_public_permissions() {
+  local site="$1"
+  local context="$2"
+  local relative
+  for relative in \
+    wp-content/uploads \
+    wp-content/themes/goetz-legal \
+    wp-content/plugins/goetz-site \
+    wp-content/plugins/goetz-migration \
+    wp-content/plugins/wordpress-seo \
+    wp-content/plugins/wpforms-lite; do
+    assert_public_tree_permissions "$site/$relative" "$context"
+  done
+}
+
 readonly -a RELEASE_SCRIPTS=(
   build.sh
   verify.sh
@@ -410,6 +435,11 @@ printf '[163.192.209.112]:43854 ssh-ed25519 CONTRACT-ONLY\n' > "$known_hosts"
 printf '<?php // contract WordPress bootstrap\n' > "$remote_site/wp-load.php"
 printf 'historical PHP Fatal error: this predates deployment\n' > "$remote_site/wp-content/debug.log"
 printf 'original upload\n' > "$remote_site/wp-content/uploads/original.txt"
+mkdir "$remote_site/wp-content/uploads/restricted-directory"
+printf 'restricted upload\n' > "$remote_site/wp-content/uploads/restricted-directory/restricted.txt"
+chmod 0700 "$remote_site/wp-content/uploads" "$remote_site/wp-content/uploads/restricted-directory"
+chmod 0600 "$remote_site/wp-content/uploads/original.txt" \
+  "$remote_site/wp-content/uploads/restricted-directory/restricted.txt"
 for relative in \
   wp-content/themes/goetz-legal \
   wp-content/plugins/goetz-migration \
@@ -793,6 +823,10 @@ case "$command_name" in
       mv '__REMOTE_SITE__/wp-content/debug.log' '__RECORD_ROOT__/debug-log-before-removal'
       find '__RECORD_ROOT__/remove-debug-log' -delete
     fi
+    if [[ "$command_name" == kinsta && -f '__RECORD_ROOT__/restrict-upload-on-kinsta-once' ]]; then
+      chmod 0600 '__REMOTE_SITE__/wp-content/uploads/original.txt'
+      find '__RECORD_ROOT__/restrict-upload-on-kinsta-once' -delete
+    fi
     if [[ "$command_name" == kinsta && -f '__RECORD_ROOT__/symlink-debug-log' ]]; then
       mv '__REMOTE_SITE__/wp-content/debug.log' '__RECORD_ROOT__/debug-log-before-symlink'
       ln -s '__RECORD_ROOT__/debug-log-before-symlink' '__REMOTE_SITE__/wp-content/debug.log'
@@ -844,6 +878,10 @@ if [[ -f '__RECORD_ROOT__/append-debug-fatal-once' ]]; then
   printf 'PHP Fatal error: route smoke generated this failure\n' >> '__REMOTE_SITE__/wp-content/debug.log'
   find '__RECORD_ROOT__/append-debug-fatal-once' -delete
 fi
+if [[ -f '__RECORD_ROOT__/restrict-upload-once' ]]; then
+  chmod 0600 '__REMOTE_SITE__/wp-content/uploads/original.txt'
+  find '__RECORD_ROOT__/restrict-upload-once' -delete
+fi
 if (( write_effective == 1 )); then
   effective="$url"
   if [[ -f '__RECORD_ROOT__/curl-effective-once' ]]; then
@@ -887,7 +925,31 @@ fi
 exec /usr/bin/flock "$@"
 FLOCK
 
-for generated in ssh-add ssh rsync wp php curl tail flock; do
+cat > "$remote_bin/find" <<'FIND'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -f '__RECORD_ROOT__/fail-next-public-permission-find' ]]; then
+  for argument in "$@"; do
+    if [[ "$argument" == '__REMOTE_SITE__/wp-content/uploads' ]]; then
+      /usr/bin/find '__RECORD_ROOT__/fail-next-public-permission-find' -delete
+      printf 'find: injected public-tree traversal failure\n' >&2
+      exit 74
+    fi
+  done
+fi
+if [[ -f '__RECORD_ROOT__/fail-next-public-dump-find' ]]; then
+  for argument in "$@"; do
+    if [[ "$argument" == '__REMOTE_SITE__' ]]; then
+      /usr/bin/find '__RECORD_ROOT__/fail-next-public-dump-find' -delete
+      printf 'find: injected public-dump traversal failure\n' >&2
+      exit 75
+    fi
+  done
+fi
+exec /usr/bin/find "$@"
+FIND
+
+for generated in ssh-add ssh rsync wp php curl tail flock find; do
   sed -i \
     -e "s|__RECORD_ROOT__|$record_root|g" \
     -e "s|__REMOTE_ROOT__|$remote_root|g" \
@@ -1081,6 +1143,7 @@ assert_contains "$remote_private/operations/deploy-$release_sha-contract-deploy.
   fail 'first-install activation recovery did not restore Gregory legacy content'
 
 deploy_wp_start="$(wc -l < "$record_root/wp.log")"
+touch "$record_root/restrict-upload-once"
 run_remote "$remote_repo/scripts/release/remote-apply.sh" \
   --release-dir="$release_dir" --backup-id=contract-deploy >/dev/null
 deploy_wp_log="$fixture/deploy-success.wp.log"
@@ -1092,6 +1155,7 @@ assert_contains "$remote_private/state/current-release" "release_commit=$release
 [[ "$(cat "$remote_state/home")" == 'https://goetzgoetz.kinsta.cloud' ]] || fail 'deployment changed the staging origin'
 [[ "$(cat "$remote_state/james-profile-state")" == 1 ]] || fail 'deployment regressed the current James profile'
 [[ "$(cat "$remote_state/gregory-profile-state")" == 1 ]] || fail 'deployment did not migrate the Gregory profile'
+assert_release_public_permissions "$remote_site" 'successful deployment'
 [[ "$(grep -Fxc '<--path='"$remote_site"'><attorney-profile><james-l-goetz><plan>' "$deploy_wp_log")" -eq 3 ]] ||
   fail 'deployment did not preflight, preview, and post-preview James exactly once each'
 [[ "$(grep -Fxc '<--path='"$remote_site"'><attorney-profile><james-l-goetz><apply>' "$deploy_wp_log" || true)" -eq 0 ]] ||
@@ -1142,6 +1206,38 @@ assert_contains "$remote_verify_output" "release_commit=$release_sha"
   fail 'remote verifier did not verify James exactly once'
 [[ "$(grep -Fxc '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=gregory-w-goetz><--verify>' "$remote_verify_wp_log")" -eq 1 ]] ||
   fail 'remote verifier did not verify Gregory exactly once'
+
+touch "$record_root/fail-next-public-permission-find"
+if run_remote "$remote_repo/scripts/release/verify-remote.sh" \
+  --release-dir="$release_dir" --origin=https://goetzgoetz.kinsta.cloud >/dev/null 2>&1; then
+  fail 'remote verifier accepted a failed public-tree permission scan'
+fi
+
+touch "$record_root/fail-next-public-dump-find"
+if run_remote "$remote_repo/scripts/release/verify-remote.sh" \
+  --release-dir="$release_dir" --origin=https://goetzgoetz.kinsta.cloud >/dev/null 2>&1; then
+  fail 'remote verifier accepted a failed public-dump scan'
+fi
+
+chmod 0600 "$remote_site/wp-content/uploads/original.txt"
+if run_remote "$remote_repo/scripts/release/verify-remote.sh" \
+  --release-dir="$release_dir" --origin=https://goetzgoetz.kinsta.cloud >/dev/null 2>&1; then
+  fail 'remote verifier accepted a private upload file'
+fi
+chmod 0644 "$remote_site/wp-content/uploads/original.txt"
+chmod 0600 "$remote_site/wp-content/themes/goetz-legal/dist/.vite/manifest.json"
+if run_remote "$remote_repo/scripts/release/verify-remote.sh" \
+  --release-dir="$release_dir" --origin=https://goetzgoetz.kinsta.cloud >/dev/null 2>&1; then
+  fail 'remote verifier accepted a private managed-code file'
+fi
+chmod 0644 "$remote_site/wp-content/themes/goetz-legal/dist/.vite/manifest.json"
+
+touch "$record_root/restrict-upload-once"
+if run_remote "$remote_repo/scripts/release/verify-remote.sh" \
+  --release-dir="$release_dir" --origin=https://goetzgoetz.kinsta.cloud >/dev/null 2>&1; then
+  fail 'remote verifier missed upload permissions that changed during route smoke'
+fi
+chmod 0644 "$remote_site/wp-content/uploads/original.txt"
 
 # Remote verification fails closed for an unmigrated profile, but accepts a
 # versioned profile that a client has legitimately edited after migration.
@@ -1559,10 +1655,12 @@ mid_sync_imports_after="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
 
 # ERR must be handled only by the parent remote shell. A WP-CLI failure inside
 # an assignment/command substitution must run packet recovery exactly once.
+chmod 0700 "$remote_site/wp-content/uploads"
+chmod 0600 "$remote_site/wp-content/uploads/original.txt"
 run_remote "$remote_repo/scripts/release/remote-backup.sh" \
   --backup-id=contract-substitution-failure --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
 substitution_imports_before="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
-touch "$record_root/fail-next-migration"
+touch "$record_root/fail-next-migration" "$record_root/restrict-upload-on-kinsta-once"
 if run_remote "$remote_repo/scripts/release/remote-apply.sh" \
   --release-dir="$release_dir" --backup-id=contract-substitution-failure >/dev/null 2>&1; then
   fail 'deployment ignored an assignment/command-substitution failure'
@@ -1572,6 +1670,7 @@ substitution_imports_after="$(grep -c '<db><import>' "$record_root/wp.log" || tr
   fail 'deployment assignment failure ran recovery zero or multiple times'
 assert_contains "$remote_private/operations/deploy-$release_sha-contract-substitution-failure.status" \
   'phase=auto_rollback_succeeded'
+assert_release_public_permissions "$remote_site" 'automatic deployment rollback'
 
 # TERM after mutation begins must use the same in-lock recovery path exactly
 # once, leave a durable receipt, and remove its private work packet.
@@ -1612,6 +1711,8 @@ assert_contains "$recovery_purge_receipt" 'phase=auto_rollback_failed_manual_int
 # The normal deploy path has the same required purge gate. If that command
 # fails, deployment must return non-zero and must not publish a complete
 # receipt; the already-prepared recovery packet may still recover the site.
+chmod 0700 "$remote_site/wp-content/uploads"
+chmod 0600 "$remote_site/wp-content/uploads/original.txt"
 run_remote "$remote_repo/scripts/release/remote-backup.sh" \
   --backup-id=contract-deploy-purge --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
 touch "$record_root/fail-next-kinsta"
@@ -1659,6 +1760,7 @@ assert_contains "$rollback_purge_receipt" 'phase=rollback_failed_manual_interven
 # remains usable and leaves subsequent contract scenarios on a known state.
 run_remote "$remote_repo/scripts/release/rollback.sh" \
   --backup-id=contract-deploy-purge --apply >/dev/null
+assert_release_public_permissions "$remote_site" 'manual rollback of private-mode backup'
 
 # A failure after activation/migration begins still restores the complete
 # packet. If that recovery itself is injected to fail, the durable receipt is
@@ -1721,6 +1823,16 @@ mv "$remote_site/wp-content/plugins/goetz-site.saved" "$remote_site/wp-content/p
 
 # A pre-domain-cutover packet is accepted only while the exact deployed release
 # receipt and exact staging URL remain coupled.
+chmod 0600 "$remote_site/wp-content/uploads/original.txt"
+if run_remote "$remote_repo/scripts/release/remote-backup.sh" \
+  --backup-id=contract-private-cutover --purpose=pre-domain-cutover --release-dir="$release_dir" >/dev/null 2>&1; then
+  fail 'pre-domain-cutover backup accepted a private upload file'
+fi
+private_cutover_receipt="$remote_private/operations/backup-contract-private-cutover.status"
+if [[ -f "$private_cutover_receipt" ]] && grep -Fq 'phase=complete' "$private_cutover_receipt"; then
+  fail 'pre-domain-cutover backup certified private upload permissions'
+fi
+chmod 0644 "$remote_site/wp-content/uploads/original.txt"
 run_remote "$remote_repo/scripts/release/remote-backup.sh" \
   --backup-id=contract-cutover --purpose=pre-domain-cutover --release-dir="$release_dir" >/dev/null
 
@@ -1796,6 +1908,14 @@ if run_remote "$remote_repo/scripts/release/cutover.sh" \
 fi
 printf '%s\n' 'https://goetzgoetz.kinsta.cloud' > "$remote_state/home"
 printf '%s\n' 'https://goetzgoetz.kinsta.cloud' > "$remote_state/siteurl"
+
+chmod 0600 "$remote_site/wp-content/uploads/original.txt"
+if run_remote "$remote_repo/scripts/release/cutover.sh" \
+  --from=https://goetzgoetz.kinsta.cloud --to=https://goetzlegal.com \
+  --backup-id=contract-cutover >/dev/null 2>&1; then
+  fail 'cutover preflight accepted a private upload file'
+fi
+chmod 0644 "$remote_site/wp-content/uploads/original.txt"
 
 cutover_dry="$fixture/cutover-dry.out"
 run_remote "$remote_repo/scripts/release/cutover.sh" \
@@ -1929,12 +2049,15 @@ awk '
 
 rollback_dry="$fixture/rollback-dry.out"
 find "$remote_site" -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > "$fixture/rollback-before.sha"
+find "$remote_site" -printf '%m\t%y\t%P\n' | LC_ALL=C sort > "$fixture/rollback-before.modes"
 run_remote "$remote_repo/scripts/release/rollback.sh" --backup-id=contract-cutover --dry-run > "$rollback_dry"
 find "$remote_site" -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > "$fixture/rollback-after.sha"
+find "$remote_site" -printf '%m\t%y\t%P\n' | LC_ALL=C sort > "$fixture/rollback-after.modes"
 cmp -s "$fixture/rollback-before.sha" "$fixture/rollback-after.sha" || fail 'rollback dry-run changed the public site'
+cmp -s "$fixture/rollback-before.modes" "$fixture/rollback-after.modes" || fail 'rollback dry-run changed public permissions'
 [[ ! -e "$remote_private/operations/rollback-contract-cutover.status" ]] || fail 'rollback dry-run wrote an operation receipt'
 for dry_marker in rollback_preflight would_restore_code would_restore_uploads would_restore_database \
-  would_verify_state would_flush would_smoke_routes manager_apply_command; do
+  would_normalize_public_permissions would_verify_state would_flush would_smoke_routes manager_apply_command; do
   assert_contains "$rollback_dry" "$dry_marker"
 done
 
@@ -1965,9 +2088,11 @@ rollback_smoke_receipt="$remote_private/operations/rollback-contract-cutover.sta
 assert_contains "$rollback_smoke_receipt" 'phase=rollback_failed_manual_intervention_required'
 assert_not_contains "$rollback_smoke_receipt" 'phase=smoke'
 
+touch "$record_root/restrict-upload-once"
 run_remote "$remote_repo/scripts/release/rollback.sh" --backup-id=contract-cutover --apply >/dev/null
 [[ "$(cat "$remote_state/home")" == 'https://goetzgoetz.kinsta.cloud' ]] || fail 'rollback did not restore staging home'
 assert_contains "$remote_private/operations/rollback-contract-cutover.status" 'phase=complete'
+assert_release_public_permissions "$remote_site" 'manual rollback'
 
 # Duplicate and almost-write flags are always rejected before transport.
 if run_remote "$remote_repo/scripts/release/cutover.sh" \

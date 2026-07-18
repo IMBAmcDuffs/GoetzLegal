@@ -91,6 +91,63 @@ assert_physical_dir() {
   [[ "$path" == "$expected" && -d "$path" && ! -L "$path" && "$(readlink -f -- "$path")" == "$expected" ]] ||
     die "unsafe or redirected directory: $expected"
 }
+verify_public_tree_permissions() {
+  local tree="$1" offender
+  case "$tree" in
+    "$site/wp-content/uploads"|\
+    "$site/wp-content/themes/goetz-legal"|\
+    "$site/wp-content/plugins/goetz-site"|\
+    "$site/wp-content/plugins/goetz-migration"|\
+    "$site/wp-content/plugins/wordpress-seo"|\
+    "$site/wp-content/plugins/wpforms-lite") ;;
+    *) die "public permission target is not allowlisted: $tree"; return ;;
+  esac
+  assert_physical_dir "$tree" "$tree" || return
+  if ! offender="$(find "$tree" -xdev ! -type d ! -type f -print -quit)"; then
+    die "could not inspect public entry types: $tree"
+    return
+  fi
+  if [[ -n "$offender" ]]; then
+    die "public tree contains an unsupported non-file entry: $tree"
+    return
+  fi
+  if ! offender="$(find "$tree" -xdev -type f -links +1 -print -quit)"; then
+    die "could not inspect public hard links: $tree"
+    return
+  fi
+  if [[ -n "$offender" ]]; then
+    die "public tree contains a hard-linked file: $tree"
+    return
+  fi
+  if ! offender="$(find "$tree" -xdev -type d ! -perm 0755 -print -quit)"; then
+    die "could not verify public directory permissions: $tree"
+    return
+  fi
+  if [[ -n "$offender" ]]; then
+    die "public directory permissions are not exactly 0755: $tree"
+    return
+  fi
+  if ! offender="$(find "$tree" -xdev -type f ! -perm 0644 -print -quit)"; then
+    die "could not verify public file permissions: $tree"
+    return
+  fi
+  if [[ -n "$offender" ]]; then
+    die "public file permissions are not exactly 0644: $tree"
+    return
+  fi
+}
+verify_runtime_public_permissions() {
+  local tree
+  for tree in \
+    "$site/wp-content/uploads" \
+    "$site/wp-content/themes/goetz-legal" \
+    "$site/wp-content/plugins/goetz-site" \
+    "$site/wp-content/plugins/goetz-migration" \
+    "$site/wp-content/plugins/wordpress-seo" \
+    "$site/wp-content/plugins/wpforms-lite"; do
+    verify_public_tree_permissions "$tree" || return
+  done
+}
 write_phase() {
   local phase="$1"
   local receipt="$private/operations/cutover-$backup_id.status"
@@ -112,8 +169,16 @@ validate_json_status() {
   ' "$allowed"
 }
 scan_public_dumps() {
-  ! find "$site" -xdev -type f \( -name '*.sql' -o -name '*.sql.gz' -o -name '*.dump' -o -name '*.bak' \
-    -o -name 'release.json' -o -name 'RELEASE-MANIFEST.sha256' -o -name '.env*' \) -print -quit | grep -q .
+  local offender
+  if ! offender="$(find "$site" -xdev -type f \( -name '*.sql' -o -name '*.sql.gz' -o -name '*.dump' -o -name '*.bak' \
+    -o -name 'release.json' -o -name 'RELEASE-MANIFEST.sha256' -o -name '.env*' \) -print -quit)"; then
+    die 'could not inspect the public tree for sensitive files'
+    return
+  fi
+  if [[ -n "$offender" ]]; then
+    die "sensitive file is exposed in the public tree: $offender"
+    return
+  fi
 }
 handle_cutover_failure() {
   local status="$1" failure_phase="$2"
@@ -137,7 +202,8 @@ handle_cutover_failure() {
       wp --path="$site" rewrite flush --hard >/dev/null 2>&1 &&
       wp --path="$site" cache flush >/dev/null 2>&1 &&
       wp --path="$site" kinsta cache purge --all >/dev/null 2>&1 &&
-      scan_public_dumps; then
+      scan_public_dumps &&
+      verify_runtime_public_permissions; then
       if ! write_phase auto_rollback_succeeded; then status=97; fi
     else
       write_phase auto_rollback_failed_manual_intervention_required || true
@@ -199,6 +265,7 @@ mapfile -t current_lines < "$current"
 [[ "$(wp --path="$site" option get home)" == "$from" ]]
 [[ "$(wp --path="$site" option get siteurl)" == "$from" ]]
 scan_public_dumps
+verify_runtime_public_permissions
 
 wp --path="$site" search-replace "$from" "$to" --all-tables-with-prefix --precise --dry-run
 if [[ "$mode" == 'dry-run' ]]; then
@@ -230,6 +297,7 @@ wp --path="$site" kinsta cache purge --all 2>/dev/null
 [[ "$(wp --path="$site" option get home)" == "$to" ]]
 [[ "$(wp --path="$site" option get siteurl)" == "$to" ]]
 scan_public_dumps
+verify_runtime_public_permissions
 write_phase complete
 trap - ERR HUP INT TERM
 REMOTE

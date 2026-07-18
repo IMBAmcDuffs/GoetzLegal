@@ -54,9 +54,37 @@ assert_dir() {
   [[ "$path" == "$expected" && -d "$path" && ! -L "$path" && "$(readlink -f -- "$path")" == "$expected" ]] ||
     die "unsafe or redirected directory: $expected"
 }
+verify_public_tree_permissions() {
+  local tree="$1" offender
+  case "$tree" in
+    "$site/wp-content/uploads"|\
+    "$site/wp-content/themes/goetz-legal"|\
+    "$site/wp-content/plugins/goetz-site"|\
+    "$site/wp-content/plugins/goetz-migration"|\
+    "$site/wp-content/plugins/wordpress-seo"|\
+    "$site/wp-content/plugins/wpforms-lite") ;;
+    *) die "public permission target is not allowlisted: $tree" ;;
+  esac
+  assert_dir "$tree" "$tree"
+  offender="$(find "$tree" -xdev ! -type d ! -type f -print -quit)" ||
+    die "could not inspect public entry types: $tree"
+  [[ -z "$offender" ]] || die "public tree contains an unsupported non-file entry: $tree"
+  offender="$(find "$tree" -xdev -type f -links +1 -print -quit)" ||
+    die "could not inspect public hard links: $tree"
+  [[ -z "$offender" ]] || die "public tree contains a hard-linked file: $tree"
+  offender="$(find "$tree" -xdev -type d ! -perm 0755 -print -quit)" ||
+    die "could not verify public directory permissions: $tree"
+  [[ -z "$offender" ]] || die "public directory permissions are not exactly 0755: $tree"
+  offender="$(find "$tree" -xdev -type f ! -perm 0644 -print -quit)" ||
+    die "could not verify public file permissions: $tree"
+  [[ -z "$offender" ]] || die "public file permissions are not exactly 0644: $tree"
+}
 scan_public_dumps() {
-  ! find "$site" -xdev -type f \( -name '*.sql' -o -name '*.sql.gz' -o -name '*.dump' -o -name '*.bak' \
-    -o -name 'release.json' -o -name 'RELEASE-MANIFEST.sha256' -o -name '.env*' \) -print -quit | grep -q .
+  local offender
+  offender="$(find "$site" -xdev -type f \( -name '*.sql' -o -name '*.sql.gz' -o -name '*.dump' -o -name '*.bak' \
+    -o -name 'release.json' -o -name 'RELEASE-MANIFEST.sha256' -o -name '.env*' \) -print -quit)" ||
+    die 'could not inspect the public tree for sensitive files'
+  [[ -z "$offender" ]] || die "sensitive file is exposed in the public tree: $offender"
 }
 verify_runtime_root() {
   local relative="$1"
@@ -70,8 +98,7 @@ verify_runtime_root() {
   actual="$site/$relative"
   assert_dir "$expected" "$expected"
   assert_dir "$actual" "$actual"
-  ! find "$actual" -xdev ! -type f ! -type d -print -quit | grep -q . ||
-    die "managed runtime root contains a non-file entry: $relative"
+  verify_public_tree_permissions "$actual"
   cmp -s \
     <(cd "$expected" && find . -mindepth 1 -printf '%y\t%P\n' | LC_ALL=C sort) \
     <(cd "$actual" && find . -mindepth 1 -printf '%y\t%P\n' | LC_ALL=C sort) ||
@@ -174,6 +201,7 @@ for runtime_root in \
   wp-content/plugins/wpforms-lite; do
   verify_runtime_root "$runtime_root"
 done
+verify_public_tree_permissions "$site/wp-content/uploads"
 
 [[ "$(wp --path="$site" eval 'echo is_multisite() ? "yes" : "no";')" == 'no' ]] || die 'multisite is not supported'
 [[ "$(wp --path="$site" option get home)" == "$origin" ]]
@@ -202,6 +230,15 @@ verify_debug_checkpoint
 for route in '/' '/james-l-goetz/' '/gregory-w-goetz/' '/staff/' '/questions/' '/links/' '/contact/'; do
   smoke_exact_route "$route"
 done
+for runtime_root in \
+  wp-content/themes/goetz-legal \
+  wp-content/plugins/goetz-site \
+  wp-content/plugins/goetz-migration \
+  wp-content/plugins/wordpress-seo \
+  wp-content/plugins/wpforms-lite; do
+  verify_public_tree_permissions "$site/$runtime_root"
+done
+verify_public_tree_permissions "$site/wp-content/uploads"
 verify_debug_checkpoint
 printf 'remote_verification=passed\nrelease_commit=%s\nrelease_manifest_sha256=%s\norigin=%s\n' \
   "$release_sha" "$release_digest" "$origin"
