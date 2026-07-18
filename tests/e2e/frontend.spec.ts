@@ -167,30 +167,35 @@ for (const route of routes) {
     diagnostics.assertClean();
   });
 
-  test(`frontend routes: ${route.name} never overflows at the five responsive widths`, async ({ page }) => {
+  test(`frontend routes: ${route.name} never overflows at the five responsive widths`, async ({ context }) => {
     test.setTimeout(120_000);
-    const diagnostics = installFrontendDiagnostics(page);
     for (const width of responsiveWidths) {
-      await page.setViewportSize({ width, height: width <= 390 ? 844 : 900 });
-      const response = await page.goto(route.path, { waitUntil: 'domcontentloaded' });
-      expect(response?.status(), `${route.path} status at ${width}px`).toBe(200);
-      expect(response?.url(), `${route.path} final URL at ${width}px`).toBe(expectedURL(route.path));
-      const imageCount = await settleRouteImages(page);
-      expect(imageCount, `${route.path} must render an image at ${width}px`).toBeGreaterThan(0);
-      await page.waitForLoadState('networkidle');
-      expect(page.url(), `${route.path} stable final URL at ${width}px`).toBe(expectedURL(route.path));
-      const overflow = await page.evaluate(() => ({
-        bodyClient: document.body.clientWidth,
-        bodyScroll: document.body.scrollWidth,
-        rootClient: document.documentElement.clientWidth,
-        rootScroll: document.documentElement.scrollWidth,
-      }));
-      expect(overflow.rootScroll, `${route.path} root overflow at ${width}px`)
-        .toBeLessThanOrEqual(overflow.rootClient + 1);
-      expect(overflow.bodyScroll, `${route.path} body overflow at ${width}px`)
-        .toBeLessThanOrEqual(overflow.bodyClient + 1);
+      const page = await context.newPage();
+      const diagnostics = installFrontendDiagnostics(page);
+      try {
+        await page.setViewportSize({ width, height: width <= 390 ? 844 : 900 });
+        const response = await page.goto(route.path, { waitUntil: 'domcontentloaded' });
+        expect(response?.status(), `${route.path} status at ${width}px`).toBe(200);
+        expect(response?.url(), `${route.path} final URL at ${width}px`).toBe(expectedURL(route.path));
+        const imageCount = await settleRouteImages(page);
+        expect(imageCount, `${route.path} must render an image at ${width}px`).toBeGreaterThan(0);
+        await page.waitForLoadState('networkidle');
+        expect(page.url(), `${route.path} stable final URL at ${width}px`).toBe(expectedURL(route.path));
+        const overflow = await page.evaluate(() => ({
+          bodyClient: document.body.clientWidth,
+          bodyScroll: document.body.scrollWidth,
+          rootClient: document.documentElement.clientWidth,
+          rootScroll: document.documentElement.scrollWidth,
+        }));
+        expect(overflow.rootScroll, `${route.path} root overflow at ${width}px`)
+          .toBeLessThanOrEqual(overflow.rootClient + 1);
+        expect(overflow.bodyScroll, `${route.path} body overflow at ${width}px`)
+          .toBeLessThanOrEqual(overflow.bodyClient + 1);
+        diagnostics.assertClean();
+      } finally {
+        await page.close();
+      }
     }
-    diagnostics.assertClean();
   });
 }
 
