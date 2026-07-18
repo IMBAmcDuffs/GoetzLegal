@@ -13,6 +13,17 @@ h1 {
     font-family: var(--font-body);
 }
 
+.editor-styles-wrapper .goetz-practice-list {
+    --goetz-practice-progress: 1 !important;
+}
+
+.editor-styles-wrapper .goetz-practice-area-item,
+.editor-styles-wrapper .goetz-practice-area-item__scale {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+}
+
 /*
   The default border color has changed to `currentColor` in Tailwind CSS v4,
   so we've added these compatibility styles to make sure everything still

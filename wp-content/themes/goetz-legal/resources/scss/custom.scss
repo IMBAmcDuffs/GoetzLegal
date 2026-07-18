@@ -22,6 +22,58 @@ body {
     min-width: 0;
 }
 
+html {
+    overflow-x: clip;
+}
+
+body.is-navigation-open {
+    overflow: hidden;
+}
+
+.goetz-skip-link {
+    background: #fff;
+    border: 2px solid var(--goetz-purple);
+    color: var(--goetz-dark);
+    font-size: 16px;
+    font-weight: 700;
+    left: 16px;
+    padding: 10px 16px;
+    position: fixed;
+    text-decoration: none;
+    top: 16px;
+    transform: translateY(calc(-100% - 32px));
+    z-index: 1000;
+}
+
+.goetz-skip-link:focus-visible {
+    outline: 3px solid #fff;
+    outline-offset: 3px;
+    transform: translateY(0);
+}
+
+.goetz-visually-hidden {
+    border: 0 !important;
+    clip: rect(0 0 0 0) !important;
+    clip-path: inset(50%) !important;
+    height: 1px !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    padding: 0 !important;
+    position: absolute !important;
+    white-space: nowrap !important;
+    width: 1px !important;
+}
+
+#primary-content:focus {
+    outline: none;
+}
+
+a:focus-visible,
+button:focus-visible {
+    outline: 3px solid var(--goetz-purple);
+    outline-offset: 3px;
+}
+
 .goetz-site {
     background: var(--goetz-dark);
     color: var(--goetz-text);
@@ -231,6 +283,19 @@ body {
     display: block;
     height: 2px;
     width: 22px;
+}
+
+body.goetz-site .goetz-hero h1 b,
+body.goetz-site .goetz-hero h1 strong,
+body.goetz-site .goetz-practice-areas__heading b,
+body.goetz-site .goetz-practice-areas__heading strong,
+body.goetz-site .goetz-cta h2 b,
+body.goetz-site .goetz-cta h2 strong {
+    color: #fff;
+    text-decoration-color: var(--goetz-purple);
+    text-decoration-line: underline;
+    text-decoration-thickness: .12em;
+    text-underline-offset: .1em;
 }
 
 .goetz-page-hero {
@@ -838,6 +903,116 @@ body {
     text-transform: none;
 }
 
+// Canonical Gutenberg homepage geometry. WordPress adds body.home regardless
+// of which editable page template is assigned, so it is the stable scope for
+// front-page-only fidelity adjustments.
+body.home .goetz-hero {
+    box-shadow: none;
+    clip-path: none;
+    max-width: none;
+    padding-bottom: 165px;
+    padding-left: max(50px, calc((100vw - 1080px) / 2));
+    padding-right: max(50px, calc((100vw - 1080px) / 2));
+    padding-top: 132px;
+    width: 100%;
+}
+
+body.home .goetz-hero .goetz-button {
+    background: #f1f1f1;
+    border: 1px solid var(--goetz-dark);
+    color: var(--goetz-muted);
+    font-weight: 500;
+}
+
+body.home .goetz-intro__heading {
+    font-size: 32px;
+    font-weight: 500;
+    line-height: 35.2px;
+}
+
+body.home .goetz-practice-band__content {
+    padding: 60px 40px 60px 10vw;
+}
+
+body.home .goetz-practice-areas__heading {
+    font-size: 32px;
+    font-weight: 500;
+    line-height: 35.2px;
+    margin-bottom: 50px;
+}
+
+body.home .goetz-practice-list {
+    gap: 30px;
+}
+
+body.home .goetz-practice-list::before {
+    bottom: 13px;
+    left: 33px;
+    top: 32px;
+}
+
+body.home .goetz-practice-area-item {
+    align-items: start;
+    gap: 32px;
+    grid-template-columns: 64px minmax(0, 1fr);
+    height: 45px;
+}
+
+body.home .goetz-practice-area-item__scale {
+    height: 64px;
+    margin-left: 2px;
+    width: 64px;
+}
+
+body.home .goetz-practice-area-item__scale-image {
+    height: 30px;
+    width: 30px;
+}
+
+body.home .goetz-practice-area-item__label {
+    align-self: center;
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 22px;
+    text-transform: uppercase;
+}
+
+body.home .goetz-attorney-grid {
+    padding-bottom: 44px;
+    padding-left: 0;
+    padding-right: 0;
+    padding-top: 47px;
+}
+
+body.home .goetz-attorney-grid__heading {
+    font-size: 32px;
+    font-weight: 400;
+    line-height: 35.2px;
+    margin-bottom: 50px;
+    text-transform: uppercase;
+}
+
+body.home .goetz-attorney-grid__heading::after {
+    background: url("/wp-content/plugins/goetz-site/assets/seed/law-scale-icon-purple.png") center / contain no-repeat;
+    content: "";
+    display: block;
+    height: 39px;
+    margin: 14px auto 0;
+    width: 40px;
+}
+
+body.home .goetz-cta .goetz-button {
+    background: #f8f8f8;
+    border: 1px solid #ebebeb;
+    color: #212529;
+}
+
+body.home .goetz-cta h2 {
+    font-size: 64px;
+    font-weight: 500;
+    line-height: 70.4px;
+}
+
 .site-footer {
     background: var(--goetz-dark);
     color: #fff;
@@ -851,6 +1026,7 @@ body {
 }
 
 .site-footer__grid {
+    align-items: start;
     display: grid;
     gap: 20px;
 }
@@ -867,15 +1043,21 @@ body {
     width: 100%;
 }
 
+.site-footer h2,
 .site-footer h3 {
-    color: var(--goetz-purple);
+    border-left: 4px solid var(--goetz-purple);
+    color: #fff;
     font-family: var(--font-heading);
     font-size: 28px;
-    font-weight: 600;
+    font-weight: 700;
     line-height: 1.1;
     letter-spacing: .06em;
     margin: 0 0 13.6px;
     text-transform: uppercase;
+}
+
+.site-footer .goetz-visually-hidden {
+    border: 0 !important;
 }
 
 .site-footer p,
@@ -964,23 +1146,72 @@ body {
     }
 
     .site-footer__grid {
-        column-gap: 64.8px;
+        column-gap: clamp(53.4px, 4.5vw, 64.8px);
         grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    body.home .goetz-cta {
+        padding-left: max(50px, calc((100vw - 1080px) / 2));
+        padding-right: max(50px, calc((100vw - 1080px) / 2));
+    }
+
+    body.home .goetz-cta > div {
+        flex: 0 1 64.6667%;
     }
 }
 
-@media (min-width: 960px) {
-    .site-header__nav-row {
-        border-top: 1px solid transparent;
-    }
-
-    .goetz-practice-band {
-        grid-template-columns: 1fr 1fr;
+@media (min-width: 601px) {
+    .goetz-practice-band,
+    body.home .goetz-practice-areas {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
 
     .goetz-practice-band__image,
     .goetz-practice-band__image img {
         min-height: 510px;
+    }
+}
+
+@media (min-width: 601px) and (max-width: 1100px) {
+    body.home .goetz-hero {
+        padding-bottom: 141px;
+    }
+
+    body.home .goetz-hero .goetz-button {
+        margin-top: 82.4px;
+    }
+
+    body.home .goetz-practice-band__content {
+        padding-left: 9.75vw;
+    }
+}
+
+@media (min-width: 601px) and (max-width: 989px) {
+    body.home .goetz-intro__heading {
+        padding-right: 20px;
+    }
+
+    body.home .goetz-attorney-grid__heading {
+        font-size: 27px;
+        line-height: 29.7px;
+    }
+}
+
+@media (min-width: 990px) {
+    .site-header__nav-row {
+        border-top: 1px solid transparent;
+    }
+}
+
+@media (min-width: 990px) and (max-width: 1000px) {
+    body.home .goetz-hero h1 {
+        box-sizing: border-box;
+        padding-right: 10px;
+    }
+
+    body.home .goetz-cta h2 {
+        box-sizing: border-box;
+        padding-right: 80px;
     }
 }
 
@@ -1003,9 +1234,142 @@ body {
     }
 }
 
-@media (max-width: 959px) {
+@media (max-width: 989px) {
     .site-header__top {
         margin-bottom: -1px;
+        min-height: 51px;
+    }
+
+    .site-header__top .site-header__inner {
+        min-height: 50px;
+    }
+
+    .site-header__nav-row {
+        min-height: 91px;
+    }
+
+    .site-header__nav-inner {
+        justify-content: space-between;
+        min-height: 91px;
+    }
+
+    .is-navigation-enhanced .site-menu-toggle {
+        align-items: flex-end;
+        background: transparent;
+        border: 0;
+        display: inline-flex;
+        gap: 7px;
+        height: 90px;
+        margin-left: auto;
+        padding: 0;
+        position: relative;
+        width: 55px;
+        z-index: 52;
+    }
+
+    .site-menu-toggle span {
+        height: 3px;
+        width: 35px;
+    }
+
+    .is-navigation-enhanced .site-navigation {
+        align-items: center;
+        background: var(--goetz-dark);
+        display: flex;
+        inset: 0;
+        justify-content: center;
+        margin: 0;
+        opacity: 0;
+        overflow-y: auto;
+        padding: 112px max(7.5vw, 24px) 48px;
+        pointer-events: none;
+        position: fixed;
+        transition: opacity 180ms ease-out, visibility 180ms ease-out;
+        visibility: hidden;
+        z-index: 50;
+    }
+
+    .is-navigation-enhanced .site-navigation.is-open {
+        opacity: 1;
+        pointer-events: auto;
+        visibility: visible;
+    }
+
+    .is-navigation-enhanced .site-navigation__list,
+    .is-navigation-enhanced .site-navigation .menu {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 0;
+        max-width: 620px;
+        width: 100%;
+    }
+
+    .is-navigation-enhanced .site-navigation a {
+        border-top: 1px solid rgb(255 255 255 / 12%);
+        display: flex;
+        font-size: clamp(18px, 3vw, 24px);
+        justify-content: center;
+        line-height: 1.2;
+        min-height: 56px;
+        padding: 16px 12px;
+        text-align: center;
+        white-space: normal;
+    }
+
+    .is-navigation-enhanced .site-navigation li:last-child a {
+        border-bottom: 1px solid rgb(255 255 255 / 12%);
+    }
+
+    html:not(.is-navigation-enhanced) .site-header__nav-inner {
+        flex-wrap: wrap;
+    }
+
+    html:not(.is-navigation-enhanced) .site-navigation {
+        margin: 0;
+        width: 100%;
+    }
+
+    html:not(.is-navigation-enhanced) .site-navigation__list,
+    html:not(.is-navigation-enhanced) .site-navigation .menu {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    html:not(.is-navigation-enhanced) .site-navigation a {
+        line-height: 1.2;
+        min-height: 44px;
+        padding: 12px 0;
+        white-space: normal;
+    }
+
+    body.home .goetz-intro__heading,
+    body.home .goetz-practice-areas__heading {
+        font-size: 27px;
+        line-height: 29.7px;
+    }
+
+    body.home .goetz-cta h2 {
+        font-size: 50px;
+        line-height: 55px;
+    }
+
+    .goetz-contact-page__canvas {
+        padding: 82px 32px 32px;
+    }
+
+    .goetz-contact-page__columns {
+        gap: 48px;
+        grid-template-columns: 1fr;
+        min-height: 0;
+    }
+
+    .goetz-contact-page__disclaimer {
+        margin: 48px 0 0;
+    }
+}
+
+@media (max-width: 600px) {
+    .site-header__top {
         min-height: 73px;
         padding-top: 0;
     }
@@ -1037,10 +1401,8 @@ body {
     }
 
     .site-header__nav-inner {
-        justify-content: space-between;
         min-height: 81px;
-        padding: 0;
-        padding-top: 1px;
+        padding: 1px 0 0;
         width: 85%;
     }
 
@@ -1062,65 +1424,57 @@ body {
         width: 37px;
     }
 
-    .site-menu-toggle {
-        align-items: flex-end;
-        border: 0;
-        display: inline-flex;
-        gap: 7px;
+    .is-navigation-enhanced .site-menu-toggle {
         height: 80px;
-        margin-left: auto;
-        padding: 0;
-        width: 55px;
     }
 
-    .site-menu-toggle span {
-        height: 3px;
-        width: 35px;
+    body.home .goetz-hero {
+        gap: 31.4px;
+        padding-bottom: 150px;
+        padding-left: 7.5vw;
+        padding-right: 7.5vw;
+        padding-top: 127px;
+        width: 100%;
     }
 
-    .site-navigation {
-        background: var(--goetz-dark);
+    body.home .goetz-hero h1 br {
         display: none;
-        left: 0;
-        padding: 1rem 1.5rem 1.5rem;
-        position: absolute;
-        right: 0;
-        top: 100%;
     }
 
-    .site-navigation.is-open {
-        display: block;
+    body.home .goetz-hero .goetz-button {
+        margin-top: 62.4px;
     }
 
-    .site-navigation__list,
-    .site-navigation .menu {
-        align-items: stretch;
-        flex-direction: column;
-        gap: 0;
+    body.home .goetz-practice-band__image,
+    body.home .goetz-practice-band__image img,
+    body.home .goetz-practice-band__background {
+        height: 510px;
+        min-height: 510px;
     }
 
-    .site-navigation a {
-        border-top: 1px solid rgb(255 255 255 / 12%);
-        line-height: 1.2;
-        padding: .85rem 0;
+    body.home .goetz-practice-band__content {
+        padding: 60px 8vw 80px;
     }
 
-    .goetz-contact-page__canvas {
-        padding: 82px 32px 32px;
+    body.home .goetz-intro__heading,
+    body.home .goetz-practice-areas__heading {
+        font-size: 21px;
+        line-height: 23.1px;
     }
 
-    .goetz-contact-page__columns {
-        gap: 48px;
-        grid-template-columns: 1fr;
-        min-height: 0;
+    body.home .goetz-attorney-grid {
+        padding-top: 30px;
     }
 
-    .goetz-contact-page__disclaimer {
-        margin: 48px 0 0;
+    body.home .goetz-attorney-grid__heading {
+        margin-bottom: 20px;
     }
-}
 
-@media (max-width: 600px) {
+    body.home .goetz-cta h2 {
+        font-size: 25px;
+        line-height: 27.5px;
+    }
+
     .goetz-page-hero {
         height: 400px;
     }
@@ -1167,5 +1521,13 @@ body {
 
     .site-footer__bottom {
         margin-top: 75px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .goetz-skip-link,
+    .site-navigation {
+        scroll-behavior: auto;
+        transition: none !important;
     }
 }

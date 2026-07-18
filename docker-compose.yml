@@ -125,6 +125,7 @@ services:
       GOETZ_ARTIFACT_DIR: /work/artifacts
     volumes:
       - ./tests/e2e:/work/e2e:ro
+      - ./tests/visual/fixtures:/work/fixtures:ro
       - ./__dev/playwright/public-node-modules:/work/e2e/node_modules
       - ./artifacts/playwright/public:/work/artifacts
     tmpfs:
@@ -150,6 +151,7 @@ services:
       GOETZ_ARTIFACT_DIR: /work/artifacts
     volumes:
       - ./tests/e2e:/work/e2e:ro
+      - ./tests/visual/fixtures:/work/fixtures:ro
       - ./__dev/playwright/public-node-modules:/work/e2e/node_modules
       - ./artifacts/playwright/public:/work/artifacts
     tmpfs:

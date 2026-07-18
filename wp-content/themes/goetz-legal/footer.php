@@ -30,6 +30,7 @@ $copyright_years = $copyright_dynamic_year && $current_year > $copyright_start_y
         <div class="site-footer__inner">
             <div class="site-footer__grid">
                 <section>
+                    <h2 class="goetz-visually-hidden"><?php echo esc_html($business_name); ?></h2>
                     <?php
                     $footer_logo_url = function_exists('goetz_legal_asset_url')
                         ? goetz_legal_asset_url('Goetz-footer-logo.png', 'https://goetzlegal.com/wp-content/uploads/2022/08/Goetz-footer-logo.png')
@@ -42,7 +43,7 @@ $copyright_years = $copyright_dynamic_year && $current_year > $copyright_start_y
                 </section>
 
                 <section class="site-footer__nav">
-                    <h3><?php esc_html_e('Site Navigation', 'goetz-legal'); ?></h3>
+                    <h2><?php esc_html_e('Site Navigation', 'goetz-legal'); ?></h2>
                     <?php if (has_nav_menu('footer')): ?>
                         <?php
                         wp_nav_menu([
@@ -66,7 +67,7 @@ $copyright_years = $copyright_dynamic_year && $current_year > $copyright_start_y
                 </section>
 
                 <section>
-                    <h3><?php esc_html_e('Contact Us', 'goetz-legal'); ?></h3>
+                    <h2><?php esc_html_e('Contact Us', 'goetz-legal'); ?></h2>
                     <p><?php echo esc_html($location_label); ?></p>
                     <p><strong><?php esc_html_e('Phone', 'goetz-legal'); ?></strong> &ndash; <a href="<?php echo esc_url('tel:' . $phone_e164); ?>"><?php echo esc_html($phone_display); ?></a></p>
                     <p><strong><?php esc_html_e('E-Mail Address', 'goetz-legal'); ?></strong></p>

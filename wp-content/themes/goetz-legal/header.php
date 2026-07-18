@@ -18,6 +18,8 @@ $email = (string) goetz_legal_setting('email', GOETZ_LEGAL_EMAIL);
     <?php wp_head(); ?>
 </head>
 <body <?php body_class('goetz-site'); ?>>
+<?php wp_body_open(); ?>
+<a class="goetz-skip-link" href="#primary-content"><?php esc_html_e('Skip to content', 'goetz-legal'); ?></a>
 <?php do_action('tailpress_site_before'); ?>
 
 <div id="page" class="site-page">
@@ -59,7 +61,16 @@ $email = (string) goetz_legal_setting('email', GOETZ_LEGAL_EMAIL);
                     <?php endif; ?>
                 </div>
 
-                <button type="button" aria-label="<?php esc_attr_e('Toggle navigation', 'goetz-legal'); ?>" id="primary-menu-toggle" class="site-menu-toggle" aria-expanded="false">
+                <button
+                    type="button"
+                    aria-label="<?php esc_attr_e('Open navigation', 'goetz-legal'); ?>"
+                    aria-controls="primary-navigation"
+                    aria-expanded="false"
+                    data-label-open="<?php esc_attr_e('Open navigation', 'goetz-legal'); ?>"
+                    data-label-close="<?php esc_attr_e('Close navigation', 'goetz-legal'); ?>"
+                    id="primary-menu-toggle"
+                    class="site-menu-toggle"
+                >
                     <span></span>
                     <span></span>
                     <span></span>
@@ -93,4 +104,4 @@ $email = (string) goetz_legal_setting('email', GOETZ_LEGAL_EMAIL);
 
     <div id="content" class="site-content">
         <?php do_action('tailpress_content_start'); ?>
-        <main>
+        <main id="primary-content" tabindex="-1">

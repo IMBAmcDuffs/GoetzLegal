@@ -16,12 +16,12 @@
         {
           "name": "Secondary",
           "slug": "secondary",
-          "color": "#7851A9"
+          "color": "#7951A9"
         },
         {
           "name": "Dark",
           "slug": "dark",
-          "color": "#1F2933"
+          "color": "#212529"
         },
         {
           "name": "Light",
@@ -105,6 +105,22 @@
           "size": "3.75rem"
         }
       ]
+    }
+  },
+  "styles": {
+    "typography": {
+      "fontFamily": "var(--wp--preset--font-family--body)",
+      "fontWeight": "400",
+      "lineHeight": "1.65"
+    },
+    "elements": {
+      "heading": {
+        "typography": {
+          "fontFamily": "var(--wp--preset--font-family--heading)",
+          "fontWeight": "500",
+          "lineHeight": "1.1"
+        }
+      }
     }
   }
 }

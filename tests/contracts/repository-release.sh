@@ -1155,11 +1155,13 @@ grep -Eq '^[[:space:]]*shm_size:[[:space:]]*' <<< "$playwright_block" ||
 ! grep -Fq 'GOETZ_COMPOSE_HOST_GATEWAY' <<< "$playwright_block" ||
   fail 'remote-capable public Playwright must not enable localhost resolver mapping'
 assert_bind_sources_allowlisted playwright \
-  ./tests/e2e ./__dev/playwright/public-node-modules ./artifacts/playwright/public
+  ./tests/e2e ./__dev/playwright/public-node-modules \
+  ./artifacts/playwright/public ./tests/visual/fixtures
 for required_mount in \
   './tests/e2e:/work/e2e:ro' \
   './__dev/playwright/public-node-modules:/work/e2e/node_modules' \
-  './artifacts/playwright/public:/work/artifacts'; do
+  './artifacts/playwright/public:/work/artifacts' \
+  './tests/visual/fixtures:/work/fixtures:ro'; do
   grep -Fq "$required_mount" <<< "$playwright_block" ||
     fail "Playwright narrow mount is missing: $required_mount"
 done
@@ -1184,11 +1186,13 @@ grep -Fq 'host.docker.internal:host-gateway' <<< "$playwright_local_block" ||
 grep -Fq 'GOETZ_COMPOSE_HOST_GATEWAY: "1"' <<< "$playwright_local_block" ||
   fail 'local public Playwright does not enable loopback resolver mapping'
 assert_bind_sources_allowlisted playwright-local \
-  ./tests/e2e ./__dev/playwright/public-node-modules ./artifacts/playwright/public
+  ./tests/e2e ./__dev/playwright/public-node-modules \
+  ./artifacts/playwright/public ./tests/visual/fixtures
 for required_mount in \
   './tests/e2e:/work/e2e:ro' \
   './__dev/playwright/public-node-modules:/work/e2e/node_modules' \
-  './artifacts/playwright/public:/work/artifacts'; do
+  './artifacts/playwright/public:/work/artifacts' \
+  './tests/visual/fixtures:/work/fixtures:ro'; do
   grep -Fq "$required_mount" <<< "$playwright_local_block" ||
     fail "local public Playwright narrow mount is missing: $required_mount"
 done

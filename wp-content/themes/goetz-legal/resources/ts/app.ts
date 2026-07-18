@@ -4,27 +4,132 @@
  * @package GoetzLegal
  */
 
+const mobileNavigationQuery = '(max-width: 989px)';
+
 /**
- * Mobile navigation toggle functionality.
+ * Full-screen mobile navigation with a current, keyboard-safe focus loop.
  */
 function initMobileNavigation(): void {
-    const mainNavigation = document.getElementById('primary-navigation');
-    const mainNavigationToggle = document.getElementById('primary-menu-toggle');
+    const navigation = document.getElementById('primary-navigation');
+    const toggle = document.getElementById('primary-menu-toggle');
 
-    if (mainNavigation && mainNavigationToggle) {
-        mainNavigationToggle.addEventListener('click', (e: Event) => {
-            e.preventDefault();
-            const isOpen = mainNavigation.classList.toggle('is-open');
-            mainNavigationToggle.classList.toggle('is-open', isOpen);
-            mainNavigationToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-        });
+    if (!(navigation instanceof HTMLElement) || !(toggle instanceof HTMLButtonElement)) {
+        return;
     }
+
+    const media = window.matchMedia(mobileNavigationQuery);
+    const openLabel = toggle.dataset.labelOpen || 'Open navigation';
+    const closeLabel = toggle.dataset.labelClose || 'Close navigation';
+    let isOpen = false;
+
+    const focusableTargets = (): HTMLElement[] => [
+        toggle,
+        ...Array.from(
+            navigation.querySelectorAll<HTMLElement>(
+                'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            ),
+        ).filter((element) => element.getClientRects().length > 0),
+    ];
+
+    const setToggleState = (open: boolean): void => {
+        toggle.classList.toggle('is-open', open);
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        toggle.setAttribute('aria-label', open ? closeLabel : openLabel);
+    };
+
+    const close = ({ restoreFocus = true }: { restoreFocus?: boolean } = {}): void => {
+        const shouldRestoreFocus = restoreFocus && isOpen && media.matches;
+        isOpen = false;
+        navigation.classList.remove('is-open');
+        document.body.classList.remove('is-navigation-open');
+        setToggleState(false);
+
+        if (shouldRestoreFocus) {
+            toggle.focus();
+        }
+    };
+
+    const open = (): void => {
+        if (!media.matches || isOpen) {
+            return;
+        }
+
+        isOpen = true;
+        navigation.classList.add('is-open');
+        document.body.classList.add('is-navigation-open');
+        setToggleState(true);
+        const focusFirstLink = (): void => {
+            navigation.querySelector<HTMLElement>('a[href]')?.focus();
+        };
+        focusFirstLink();
+        window.setTimeout(() => {
+            if (isOpen) {
+                focusFirstLink();
+            }
+        }, 50);
+    };
+
+    const onKeydown = (event: KeyboardEvent): void => {
+        if (!isOpen || !media.matches) {
+            return;
+        }
+
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            close();
+            return;
+        }
+
+        if (event.key !== 'Tab') {
+            return;
+        }
+
+        const targets = focusableTargets();
+        const first = targets[0];
+        const last = targets[targets.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+        } else if (!targets.includes(document.activeElement as HTMLElement)) {
+            event.preventDefault();
+            (targets[1] ?? first).focus();
+        }
+    };
+
+    const onResize = (): void => {
+        if (!media.matches) {
+            close({ restoreFocus: false });
+        }
+    };
+
+    toggle.addEventListener('click', (event: MouseEvent) => {
+        event.preventDefault();
+        if (isOpen) {
+            close();
+        } else {
+            open();
+        }
+    });
+    navigation.addEventListener('click', (event: MouseEvent) => {
+        if (event.target instanceof Element && event.target.closest('a[href]')) {
+            close({ restoreFocus: false });
+        }
+    });
+    document.addEventListener('keydown', onKeydown);
+    window.addEventListener('resize', onResize, { passive: true });
+
+    setToggleState(false);
+    document.documentElement.classList.add('is-navigation-enhanced');
 }
 
 /**
  * Smooth scroll for anchor links.
  */
 function initSmoothScroll(): void {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     document.querySelectorAll<HTMLAnchorElement>('a[href^="#"]').forEach((anchor) => {
         anchor.addEventListener('click', (e: Event) => {
             const href = anchor.getAttribute('href');
@@ -34,9 +139,12 @@ function initSmoothScroll(): void {
             if (target) {
                 e.preventDefault();
                 target.scrollIntoView({
-                    behavior: 'smooth',
+                    behavior: reduceMotion.matches ? 'auto' : 'smooth',
                     block: 'start',
                 });
+                if (target instanceof HTMLElement && target.hasAttribute('tabindex')) {
+                    target.focus({ preventScroll: true });
+                }
             }
         });
     });
@@ -88,7 +196,7 @@ function initContactFormPresentation(): void {
 /**
  * Initialize all application features when DOM is ready.
  */
-window.addEventListener('load', (): void => {
+document.addEventListener('DOMContentLoaded', (): void => {
     initMobileNavigation();
     initSmoothScroll();
     initHeaderScroll();
