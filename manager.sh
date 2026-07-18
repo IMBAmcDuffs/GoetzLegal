@@ -21,10 +21,15 @@ CALLER_GOETZ_REFERENCE_EXPECT_ORIGIN_SET="${GOETZ_REFERENCE_EXPECT_ORIGIN+x}"
 CALLER_GOETZ_REFERENCE_EXPECT_ORIGIN="${GOETZ_REFERENCE_EXPECT_ORIGIN-}"
 CALLER_GOETZ_REFERENCE_ALLOW_OVERRIDE_SET="${GOETZ_REFERENCE_ALLOW_OVERRIDE+x}"
 CALLER_GOETZ_REFERENCE_ALLOW_OVERRIDE="${GOETZ_REFERENCE_ALLOW_OVERRIDE-}"
+CALLER_SSH_AUTH_SOCK_SET="${SSH_AUTH_SOCK+x}"
+CALLER_SSH_AUTH_SOCK="${SSH_AUTH_SOCK-}"
+CALLER_RELEASE_HOME="${HOME:-/tmp}"
+CALLER_RELEASE_PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}"
 unset GOETZ_BASE_URL GOETZ_EXPECT_ORIGIN GOETZ_EXPECT_PRODUCTION
 unset GOETZ_E2E_ALLOW_REMOTE GOETZ_E2E_USER GOETZ_E2E_PASSWORD
 unset GOETZ_REFERENCE_URL GOETZ_REFERENCE_ALLOW_OVERRIDE
 unset GOETZ_REFERENCE_EXPECT_ORIGIN GOETZ_REFERENCE_OVERRIDE_APPROVED GOETZ_CAPTURE_MODE
+unset SSH_AUTH_SOCK
 unset SSH_KEY_PW
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WP_PATH=/var/www/html
@@ -46,6 +51,11 @@ unset GOETZ_BASE_URL GOETZ_EXPECT_ORIGIN GOETZ_EXPECT_PRODUCTION
 unset GOETZ_E2E_ALLOW_REMOTE GOETZ_E2E_USER GOETZ_E2E_PASSWORD
 unset GOETZ_REFERENCE_URL GOETZ_REFERENCE_ALLOW_OVERRIDE
 unset GOETZ_REFERENCE_EXPECT_ORIGIN GOETZ_REFERENCE_OVERRIDE_APPROVED GOETZ_CAPTURE_MODE
+if [[ -n "$CALLER_SSH_AUTH_SOCK_SET" ]]; then
+  SSH_AUTH_SOCK="$CALLER_SSH_AUTH_SOCK"
+else
+  unset SSH_AUTH_SOCK
+fi
 
 docker_cli() {
   local -a clean_env=(
@@ -873,6 +883,93 @@ db_export() {
   printf 'Database exported: %s\n' "${output_file}"
 }
 
+# Production release commands run outside Docker and receive a deliberately
+# small environment. In particular, no release child can re-read .env or
+# inherit SSH_KEY_PW, admin credentials, database credentials, proxy settings,
+# or unrelated caller variables.
+release_command_path() {
+  local result='/usr/local/bin:/usr/bin:/bin'
+  local command_name command_path command_dir
+  for command_name in node npm composer docker; do
+    command_path="$(PATH="$CALLER_RELEASE_PATH" command -v "$command_name" 2>/dev/null || true)"
+    [[ "$command_path" == /* ]] || continue
+    command_dir="${command_path%/*}"
+    case ":$result:" in
+      *":$command_dir:"*) ;;
+      *) result="$command_dir:$result" ;;
+    esac
+  done
+  printf '%s\n' "$result"
+}
+
+release_clean_exec() {
+  local script="$1"
+  shift
+  [[ "$script" == "${ROOT_DIR}/scripts/release/"*.sh && -x "$script" ]] || {
+    echo "Release script is unavailable: $script" >&2
+    return 2
+  }
+  /usr/bin/env -i \
+    "HOME=$CALLER_RELEASE_HOME" \
+    "PATH=$(release_command_path)" \
+    "$script" "$@"
+}
+
+require_kinsta_config() {
+  local required_name
+  for required_name in \
+    KINSTA_SSH_USER KINSTA_SSH_HOST KINSTA_SSH_PORT KINSTA_SITE_PATH KINSTA_KNOWN_HOSTS_FILE; do
+    [[ -n "${!required_name:-}" ]] || {
+      echo "Missing Kinsta release configuration: $required_name" >&2
+      return 2
+    }
+  done
+  [[ "$KINSTA_SSH_USER" == 'goetzgoetz' ]] || { echo 'Unexpected Kinsta SSH user.' >&2; return 2; }
+  [[ "$KINSTA_SSH_HOST" == '163.192.209.112' ]] || { echo 'Unexpected Kinsta SSH host.' >&2; return 2; }
+  [[ "$KINSTA_SSH_PORT" == '43854' ]] || { echo 'Unexpected Kinsta SSH port.' >&2; return 2; }
+  [[ "$KINSTA_SITE_PATH" == '/www/goetzgoetz_755/public' ]] || { echo 'Unexpected Kinsta site path.' >&2; return 2; }
+  [[ "$KINSTA_KNOWN_HOSTS_FILE" == /* && "$KINSTA_KNOWN_HOSTS_FILE" != *[[:space:]]* ]] || {
+    echo 'KINSTA_KNOWN_HOSTS_FILE must be an absolute path without whitespace.' >&2
+    return 2
+  }
+  [[ -f "$KINSTA_KNOWN_HOSTS_FILE" && ! -L "$KINSTA_KNOWN_HOSTS_FILE" && -s "$KINSTA_KNOWN_HOSTS_FILE" ]] || {
+    echo 'The pinned Kinsta known-host file is missing, empty, or a symlink.' >&2
+    return 2
+  }
+  [[ -n "$CALLER_SSH_AUTH_SOCK_SET" && -n "$CALLER_SSH_AUTH_SOCK" && -e "$CALLER_SSH_AUTH_SOCK" ]] || {
+    echo 'An already-unlocked isolated SSH_AUTH_SOCK is required.' >&2
+    return 2
+  }
+}
+
+release_remote_exec() {
+  local script="$1"
+  shift
+  require_kinsta_config
+  [[ "$script" == "${ROOT_DIR}/scripts/release/"*.sh && -x "$script" ]] || {
+    echo "Release script is unavailable: $script" >&2
+    return 2
+  }
+  /usr/bin/env -i \
+    "HOME=$CALLER_RELEASE_HOME" \
+    "PATH=$(release_command_path)" \
+    "SSH_AUTH_SOCK=$CALLER_SSH_AUTH_SOCK" \
+    "KINSTA_SSH_USER=$KINSTA_SSH_USER" \
+    "KINSTA_SSH_HOST=$KINSTA_SSH_HOST" \
+    "KINSTA_SSH_PORT=$KINSTA_SSH_PORT" \
+    "KINSTA_SITE_PATH=$KINSTA_SITE_PATH" \
+    "KINSTA_KNOWN_HOSTS_FILE=$KINSTA_KNOWN_HOSTS_FILE" \
+    "$script" "$@"
+}
+
+release_build() { release_clean_exec "$ROOT_DIR/scripts/release/build.sh" "$@"; }
+release_verify() { release_clean_exec "$ROOT_DIR/scripts/release/verify.sh" "$@"; }
+remote_backup() { release_remote_exec "$ROOT_DIR/scripts/release/remote-backup.sh" "$@"; }
+remote_deploy() { release_remote_exec "$ROOT_DIR/scripts/release/remote-apply.sh" "$@"; }
+remote_cutover() { release_remote_exec "$ROOT_DIR/scripts/release/cutover.sh" "$@"; }
+remote_rollback() { release_remote_exec "$ROOT_DIR/scripts/release/rollback.sh" "$@"; }
+verify_remote() { release_remote_exec "$ROOT_DIR/scripts/release/verify-remote.sh" "$@"; }
+
 case "${1:-help}" in
   start) shift; start "$@" ;;
   stop) shift; stop "$@" ;;
@@ -902,6 +999,13 @@ case "${1:-help}" in
   test:e2e) shift; test_e2e "$@" ;;
   test:all) shift; test_all "$@" ;;
   migrate:scan) shift; migrate_scan "$@" ;;
+  release:build) shift; release_build "$@" ;;
+  release:verify) shift; release_verify "$@" ;;
+  remote:backup) shift; remote_backup "$@" ;;
+  remote:deploy) shift; remote_deploy "$@" ;;
+  remote:cutover) shift; remote_cutover "$@" ;;
+  remote:rollback) shift; remote_rollback "$@" ;;
+  verify:remote) shift; verify_remote "$@" ;;
   *)
     cat <<'MSG'
 Usage: ./manager.sh <command>
@@ -935,6 +1039,13 @@ Commands:
   test:e2e         Run authenticated and public tests against local WordPress
   test:all         Run all local contracts, unit, integration, compat, and E2E tests
   migrate:scan     Dry-run source discovery/create-only preview
+  release:build    Build the exact clean pushed commit into a checksum payload
+  release:verify   Verify a local release payload and strict metadata schema
+  remote:backup    Create/download a coupled checksum Kinsta rollback packet
+  remote:deploy    Upload and apply one allowlisted release with in-lock recovery
+  remote:cutover   Dry-run/apply the exact staging-to-production URL cutover
+  remote:rollback  Dry-run/apply one verified coupled rollback packet
+  verify:remote    Verify release digest, runtime state, logs, dumps, and routes
 MSG
     ;;
 esac

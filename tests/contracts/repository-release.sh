@@ -68,6 +68,10 @@ rsync_delete_is_safe() {
   local plugin_path
   local plugin_name
   local allowed_plugin
+  local source
+  local source_path
+  local normalized_source
+  local private_root
   local has_delete=0
   local -a arguments=()
 
@@ -85,6 +89,7 @@ rsync_delete_is_safe() {
   (( has_delete == 1 )) || return 0
 
   destination="${arguments[$((${#arguments[@]} - 1))]}"
+  source="${arguments[$((${#arguments[@]} - 2))]}"
   case "$destination" in
     *:/*)
       destination_path="${destination#*:}"
@@ -99,27 +104,52 @@ rsync_delete_is_safe() {
 
   normalized_destination="$(normalize_absolute_path "$destination_path")" || return 1
   normalized_site_root="$(normalize_absolute_path "$site_root")" || return 1
+  private_root="${normalized_site_root%/public}/private"
+
+  case "$source" in
+    *:/*) source_path="${source#*:}" ;;
+    /*) source_path="$source" ;;
+    *) return 1 ;;
+  esac
+  normalized_source="$(normalize_absolute_path "${source_path%/}")" || return 1
 
   case "$normalized_destination" in
     "$normalized_site_root"|\
     "$normalized_site_root/wp-admin"|"$normalized_site_root/wp-admin/"*|\
     "$normalized_site_root/wp-includes"|"$normalized_site_root/wp-includes/"*|\
     "$normalized_site_root/wp-content/mu-plugins"|"$normalized_site_root/wp-content/mu-plugins/"*|\
-    "$normalized_site_root/wp-content/uploads"|"$normalized_site_root/wp-content/uploads/"*|\
+    "$normalized_site_root/wp-content/uploads/"*|\
     "$normalized_site_root/wp-content/plugins")
       return 1
       ;;
     "$normalized_site_root/wp-content/plugins/"*)
       plugin_path="${normalized_destination#"$normalized_site_root/wp-content/plugins/"}"
+      [[ "$plugin_path" != */* ]] || return 1
       plugin_name="${plugin_path%%/*}"
       for allowed_plugin in "${ALLOWED_RSYNC_DELETE_PLUGINS[@]}"; do
         [[ "$plugin_name" == "$allowed_plugin" ]] && return 0
       done
       return 1
       ;;
+    "$normalized_site_root/wp-content/themes/goetz-legal")
+      return 0
+      ;;
+    "$normalized_site_root/wp-content/uploads")
+      case "$normalized_source" in
+        "$private_root"/rollback-work-*/uploads-packet/wp-content/uploads|\
+        "$private_root"/deploy-recovery-*/uploads-packet/wp-content/uploads)
+          return 0
+          ;;
+      esac
+      return 1
+      ;;
+    "$private_root"/releases/.incoming-*/payload)
+      [[ "${normalized_destination#"$private_root/releases/.incoming-"}" =~ ^[0-9a-f]{40}-[A-Za-z0-9][A-Za-z0-9._-]{0,63}/payload$ ]] || return 1
+      return 0
+      ;;
   esac
 
-  return 0
+  return 1
 }
 
 repository_script_is_delete_free() {
@@ -193,7 +223,14 @@ grep -Fq 'playwright-installer npx playwright install --with-deps chromium' mana
 ! grep -Eq 'deploy:db|wp db import' manager.sh
 ! grep -Fq '${ROOT_DIR}/wp-content/uploads/' manager.sh
 declare -F scan_repository_deployment_scripts >/dev/null || fail 'repository rsync deletion scanner is missing'
-scan_repository_deployment_scripts || fail 'repository deployment code violates the zero-delete baseline'
+scan_repository_deployment_scripts manager.sh || fail 'manager deployment code violates the zero-delete baseline'
+# The release contract executes every remote heredoc against a mapped
+# disposable filesystem, records the resolved rsync argv, applies this same
+# exact-target policy, and proves symlink destinations fail before mutation.
+if [[ -d scripts/release ]]; then
+  bash tests/contracts/release-payload.sh >/dev/null ||
+    fail 'release scripts failed the executable rsync target/containment contract'
+fi
 
 # Dependency reproducibility invariants. Lockfiles are source artifacts: they
 # must exist, be trackable, and be consumed through locked install commands.
@@ -366,6 +403,7 @@ KINSTA_SSH_USER=never-export-ssh-user
 KINSTA_SSH_HOST=never-export-ssh-host
 KINSTA_SSH_PORT=65535
 KINSTA_SITE_PATH=/never/export/this/path
+KINSTA_KNOWN_HOSTS_FILE=/never/export/known-hosts
 GOETZ_NOT_ALLOWLISTED=never-forward-non-allowlisted
 GOETZ_BASE_URL=https://env-base.invalid
 GOETZ_EXPECT_ORIGIN=https://env-origin.invalid
@@ -489,6 +527,7 @@ disallowed=(
   KINSTA_SSH_HOST
   KINSTA_SSH_PORT
   KINSTA_SITE_PATH
+  KINSTA_KNOWN_HOSTS_FILE
   GOETZ_NOT_ALLOWLISTED
   GOETZ_PREEXPORTED_SENTINEL
   GOETZ_BASE_URL
@@ -1587,6 +1626,95 @@ cp manager.sh .env.example "$new_env_fixture/"
 )
 [[ "$(stat -c '%a' "$new_env_fixture/.env")" == '600' ]] || fail 'new synthetic .env was not created with mode 600'
 
+# Manager release dispatch is independently environment-sanitized. These fake
+# release children never contact SSH; they only record argv/environment so the
+# contract can prove .env and its passphrase are not forwarded.
+release_manager_fixture="$fixture/release-manager"
+mkdir -p "$release_manager_fixture/scripts/release" "$release_manager_fixture/home"
+cp manager.sh .env.example "$release_manager_fixture/"
+release_known_hosts="$release_manager_fixture/known_hosts"
+release_agent_sock="$release_manager_fixture/agent.sock"
+printf '[163.192.209.112]:43854 ssh-ed25519 CONTRACT-ONLY\n' > "$release_known_hosts"
+touch "$release_agent_sock"
+cat > "$release_manager_fixture/.env" <<ENV
+COMPOSE_PROJECT_NAME=release-contract
+WP_PORT=18080
+MYSQL_DATABASE=never-forward-db
+MYSQL_USER=never-forward-db-user
+MYSQL_PASSWORD=never-forward-db-password
+MYSQL_ROOT_PASSWORD=never-forward-root-password
+KINSTA_SSH_USER=goetzgoetz
+KINSTA_SSH_HOST=163.192.209.112
+KINSTA_SSH_PORT=43854
+KINSTA_SITE_PATH=/www/goetzgoetz_755/public
+KINSTA_KNOWN_HOSTS_FILE=$release_known_hosts
+WP_ADMIN_PASSWORD=never-forward-release-admin
+SSH_KEY_PW=never-forward-manager-release-secret
+GOETZ_NOT_ALLOWLISTED=never-forward-manager-release-sentinel
+ENV
+for release_script in build.sh verify.sh remote-backup.sh remote-apply.sh cutover.sh rollback.sh verify-remote.sh; do
+  cat > "$release_manager_fixture/scripts/release/$release_script" <<'RELEASE_CHILD'
+#!/usr/bin/env bash
+set -euo pipefail
+record_root="${0%/scripts/release/*}"
+{
+  printf 'script=<%s>\n' "${0##*/}"
+  printf 'argv:'
+  printf ' <%s>' "$@"
+  printf '\n'
+  /usr/bin/env | /usr/bin/sort
+} >> "$record_root/release-child.record"
+RELEASE_CHILD
+  chmod 700 "$release_manager_fixture/scripts/release/$release_script"
+done
+
+release_manager_env=(
+  HOME="$release_manager_fixture/home"
+  PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}"
+  SSH_AUTH_SOCK="$release_agent_sock"
+  SSH_KEY_PW=never-forward-manager-inherited-secret
+  GOETZ_PREEXPORTED_SENTINEL=never-forward-manager-preexported
+)
+run_release_manager() {
+  /usr/bin/env -i "${release_manager_env[@]}" /bin/bash "$release_manager_fixture/manager.sh" "$@"
+}
+run_release_manager release:build 0123456789abcdef0123456789abcdef01234567
+run_release_manager release:verify '/tmp/release path'
+run_release_manager remote:backup --purpose=pre-deployment --release-dir='/tmp/release path'
+run_release_manager remote:deploy --release-dir='/tmp/release path' --backup-id=contract
+run_release_manager remote:cutover --from=https://goetzgoetz.kinsta.cloud --to=https://goetzlegal.com --backup-id=contract
+run_release_manager remote:rollback --backup-id=contract --dry-run
+run_release_manager verify:remote --release-dir='/tmp/release path' --origin=https://goetzgoetz.kinsta.cloud
+release_child_record="$release_manager_fixture/release-child.record"
+[[ "$(grep -c '^script=<' "$release_child_record")" -eq 7 ]] || fail 'manager did not dispatch all seven release commands'
+grep -Fq 'argv: <--release-dir=/tmp/release path> <--backup-id=contract>' "$release_child_record" ||
+  fail 'manager release dispatcher did not preserve quoted arguments'
+for required_release_env in HOME PATH; do
+  grep -q "^${required_release_env}=" "$release_child_record" || fail "local release child is missing $required_release_env"
+done
+for required_remote_env in SSH_AUTH_SOCK KINSTA_SSH_USER KINSTA_SSH_HOST KINSTA_SSH_PORT KINSTA_SITE_PATH KINSTA_KNOWN_HOSTS_FILE; do
+  grep -q "^${required_remote_env}=" "$release_child_record" || fail "remote release child is missing $required_remote_env"
+done
+for forbidden_release_text in \
+  SSH_KEY_PW \
+  never-forward-manager-release-secret \
+  never-forward-manager-inherited-secret \
+  never-forward-manager-release-sentinel \
+  never-forward-manager-preexported \
+  never-forward-db-password \
+  never-forward-root-password \
+  never-forward-release-admin \
+  "$release_manager_fixture/.env"; do
+  ! grep -Fq "$forbidden_release_text" "$release_child_record" ||
+    fail "manager forwarded forbidden release data: $forbidden_release_text"
+done
+find "$release_child_record" -delete
+if /usr/bin/env -i HOME="$release_manager_fixture/home" PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}" \
+  /bin/bash "$release_manager_fixture/manager.sh" remote:rollback --backup-id=contract --dry-run >/dev/null 2>&1; then
+  fail 'manager remote release command accepted a missing caller SSH agent'
+fi
+[[ ! -e "$release_child_record" ]] || fail 'manager invoked a remote release child before validating SSH_AUTH_SOCK'
+
 unsafe_repository_script="$fixture/unsafe-release.sh"
 cat > "$unsafe_repository_script" <<'UNSAFE_RELEASE'
 #!/usr/bin/env bash
@@ -1649,6 +1777,18 @@ safe_plugin_record="$fixture/rsync-safe-plugin.record"
 record_rsync "$safe_plugin_record" /bin/bash -c \
   'rsync -az --delete /tmp/source/ deploy@example.invalid:/www/example/public/wp-content/plugins/goetz-site/'
 
+safe_theme_record="$fixture/rsync-safe-theme.record"
+record_rsync "$safe_theme_record" /bin/bash -c \
+  'rsync -az --delete-delay /tmp/source/ /www/example/public/wp-content/themes/goetz-legal/'
+
+safe_restore_uploads_record="$fixture/rsync-safe-restore-uploads.record"
+record_rsync "$safe_restore_uploads_record" /bin/bash -c \
+  'rsync -az --delete-delay /www/example/private/rollback-work-contract/uploads-packet/wp-content/uploads/ /www/example/public/wp-content/uploads/'
+
+safe_incoming_release_record="$fixture/rsync-safe-incoming-release.record"
+record_rsync "$safe_incoming_release_record" /bin/bash -c \
+  'rsync -az --delete-delay /tmp/payload/ deploy@example.invalid:/www/example/private/releases/.incoming-0123456789abcdef0123456789abcdef01234567-contract/payload/'
+
 unsafe_descendant_destinations=(
   'deploy@example.invalid:/www/example/public/wp-content/uploads/2026/07/'
   'deploy@example.invalid:/www/example/public/wp-content/mu-plugins/kinsta/cache/'
@@ -1658,6 +1798,7 @@ unsafe_descendant_destinations=(
   'deploy@example.invalid:/www/example/public/wp-includes/blocks/'
   'deploy@example.invalid:/www/example/public/wp-content/plugins/unapproved-plugin/'
   'deploy@example.invalid:/www/example/public/wp-content/plugins/unapproved-plugin/includes/'
+  'deploy@example.invalid:/www/example/public/wp-content/plugins/goetz-site/includes/'
 )
 unsafe_descendant_records=()
 for index in "${!unsafe_descendant_destinations[@]}"; do
@@ -1696,6 +1837,9 @@ for index in "${!unsafe_descendant_records[@]}"; do
   fi
 done
 rsync_delete_is_safe "$safe_plugin_record" "$site_root" || fail 'explicit named-plugin --delete destination was rejected'
+rsync_delete_is_safe "$safe_theme_record" "$site_root" || fail 'exact named-theme --delete-delay destination was rejected'
+rsync_delete_is_safe "$safe_restore_uploads_record" "$site_root" || fail 'coupled rollback uploads restore was rejected'
+rsync_delete_is_safe "$safe_incoming_release_record" "$site_root" || fail 'exact private incoming release resume was rejected'
 for index in "${!allowed_plugin_records[@]}"; do
   rsync_delete_is_safe "${allowed_plugin_records[$index]}" "$site_root" ||
     fail "allowlisted named-plugin destination was rejected: ${allowed_plugin_names[$index]}"

@@ -44,6 +44,42 @@ Set `FETCH_PROXY_URL` in `.env` if the migration tool ever needs a Cloudflare Wo
 | `./manager.sh test:public` | Run public frontend, SEO, accessibility, and visual checks |
 | `./manager.sh migrate:scan` | Read-only source discovery and create-only preview |
 
+## Production Release
+
+Production releases are built from the exact clean `main` commit recorded at
+`origin/main`. The payload contains only the five allowlisted runtime roots and
+two checksum metadata files; ordinary releases never replace the production
+database or broad WordPress directories.
+
+Configure the fixed Kinsta endpoint and an independently verified pinned host
+key in the ignored `.env`, unlock the SSH identity in an isolated agent, then
+use the guarded sequence below:
+
+```bash
+release_sha="$(git rev-parse HEAD)"
+release_dir="__dev/releases/$release_sha"
+
+./manager.sh release:build "$release_sha"
+./manager.sh release:verify "$release_dir"
+./manager.sh remote:backup \
+  --purpose=pre-deployment \
+  --release-dir="$release_dir"
+./manager.sh remote:deploy \
+  --release-dir="$release_dir" \
+  --backup-id=<pre-deployment-backup-id>
+./manager.sh verify:remote \
+  --release-dir="$release_dir" \
+  --origin=https://goetzgoetz.kinsta.cloud
+```
+
+After the staging gates pass, create a separate
+`--purpose=pre-domain-cutover` packet bound to the same release, run the
+cutover dry-run, and apply only in the approved DNS/TLS window. Rollback is
+also dry-run by default and always names one locally and remotely verified
+coupled packet. See
+[`docs/deployment/goetz-production-runbook.md`](docs/deployment/goetz-production-runbook.md)
+for the exact cutover, recovery, receipt, and credential-cleanup procedure.
+
 ## Content Scope
 
 The importer only creates pages for:
