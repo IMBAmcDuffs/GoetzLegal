@@ -109,6 +109,13 @@ describe('CTA editor', () => {
     expect(preview.props.style).toEqual({
       '--goetz-cta-background-image': 'url("https://example.test/gavel.jpg")',
     });
+    expect(preview.props.children.map((child) => child.type)).toEqual([
+      'div',
+      'RichText',
+    ]);
+    expect(preview.props.children[0].props.children.map(
+      (child) => child.props['aria-label']
+    )).toEqual(['CTA eyebrow', 'CTA heading']);
   });
 
   test('previews localized blank defaults without persisting block overrides', () => {

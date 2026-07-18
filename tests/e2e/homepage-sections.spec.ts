@@ -172,7 +172,7 @@ test('production homepage section presentation uses real WordPress rendering and
       }
     });
 
-    for (const width of [390, 989, 990, 1440]) {
+    for (const width of [390, 782, 989, 990, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       const response = await page.goto(permalink, { waitUntil: 'networkidle' });
       expect(response?.ok()).toBeTruthy();
@@ -224,6 +224,8 @@ test('production homepage section presentation uses real WordPress rendering and
           heroContent: bounds('.goetz-hero__content'),
           heroImage: bounds('.goetz-hero__media img'),
           cardImage: bounds('.goetz-attorney-card__image'),
+          cta: bounds('.goetz-cta'),
+          ctaButton: bounds('.goetz-cta .goetz-button'),
           columns: getComputedStyle(gridElement).gridTemplateColumns.split(' ').length,
           cardTextAlign: getComputedStyle(body).textAlign,
           linksJustification: getComputedStyle(links).justifyContent,
@@ -246,7 +248,11 @@ test('production homepage section presentation uses real WordPress rendering and
         expect(geometry.heroImage.x).toBeGreaterThan(
           geometry.heroContent.x + geometry.heroContent.width,
         );
-        expect(geometry.headingFont).toBeCloseTo(width === 989 ? 40 : 50, 0);
+        expect(geometry.headingFont).toBeCloseTo(width < 990 ? 40 : 50, 0);
+        expect(
+          geometry.cta.x + geometry.cta.width
+            - (geometry.ctaButton.x + geometry.ctaButton.width),
+        ).toBeGreaterThanOrEqual(31);
       }
       if (width === 1440) {
         expect(geometry.heroContent.width).toBeCloseTo(507.6, 0);

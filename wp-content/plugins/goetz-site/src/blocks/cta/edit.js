@@ -58,22 +58,24 @@ export function CtaEdit({ attributes = {}, setAttributes }) {
         </PanelBody>
       </InspectorControls>
       <section {...blockProps}>
-        <RichText
-          tagName="p"
-          className="goetz-editor-preview__eyebrow"
-          aria-label={__('CTA eyebrow', 'goetz-site')}
-          value={attributes.eyebrow || ''}
-          allowedFormats={[]}
-          onChange={(eyebrow) => setAttributes({ eyebrow })}
-        />
-        <RichText
-          tagName="h2"
-          className="goetz-editor-preview__heading"
-          aria-label={__('CTA heading', 'goetz-site')}
-          value={attributes.heading || ''}
-          allowedFormats={['core/bold', 'core/italic']}
-          onChange={(heading) => setAttributes({ heading })}
-        />
+        <div>
+          <RichText
+            tagName="p"
+            className="goetz-editor-preview__eyebrow"
+            aria-label={__('CTA eyebrow', 'goetz-site')}
+            value={attributes.eyebrow || ''}
+            allowedFormats={[]}
+            onChange={(eyebrow) => setAttributes({ eyebrow })}
+          />
+          <RichText
+            tagName="h2"
+            className="goetz-editor-preview__heading"
+            aria-label={__('CTA heading', 'goetz-site')}
+            value={attributes.heading || ''}
+            allowedFormats={['core/bold', 'core/italic']}
+            onChange={(heading) => setAttributes({ heading })}
+          />
+        </div>
         <RichText
           tagName="span"
           className="goetz-button goetz-editor-preview__button"

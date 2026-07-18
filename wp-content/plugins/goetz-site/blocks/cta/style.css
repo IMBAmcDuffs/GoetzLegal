@@ -57,6 +57,12 @@
   text-transform: uppercase;
 }
 
+.editor-styles-wrapper .goetz-editor-preview--cta .goetz-button::after {
+  content: "›";
+  font-size: 1.35em;
+  line-height: 0.7;
+}
+
 .editor-styles-wrapper .goetz-editor-preview--cta .block-editor-rich-text__editable {
   color: inherit;
 }
@@ -69,7 +75,8 @@
   }
 
   .editor-styles-wrapper .goetz-editor-preview--cta > div {
-    flex: 0 0 64.6667%;
+    flex: 1 1 64.6667%;
+    min-width: 0;
   }
 }
 

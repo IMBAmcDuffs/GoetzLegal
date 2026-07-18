@@ -44,6 +44,7 @@
   display: block;
   height: auto;
   overflow: visible;
+  padding: 0;
 }
 
 .goetz-attorney-grid .goetz-attorney-card__image,
@@ -64,6 +65,11 @@
   justify-content: center;
   padding: 24px;
   text-align: center;
+}
+
+.editor-styles-wrapper .goetz-attorney-grid .goetz-attorney-card__image,
+.editor-styles-wrapper .goetz-attorney-grid .goetz-attorney-card__image-placeholder {
+  aspect-ratio: 910 / 500;
 }
 
 .goetz-attorney-grid .goetz-attorney-card__body {

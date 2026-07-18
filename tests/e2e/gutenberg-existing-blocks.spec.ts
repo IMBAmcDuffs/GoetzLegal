@@ -888,6 +888,14 @@ test('Attorney Grid uses native add edit remove reorder save and reload controls
     const grid = canvas.locator('[data-type="goetz/attorney-grid"]');
     const firstCard = grid.locator('[data-type="goetz/attorney-card"]').first();
     await expect(firstCard).toHaveCSS('box-shadow', 'none');
+    await expect(firstCard).toHaveCSS('padding', '0px');
+    const firstImageRatio = await firstCard
+      .locator('.goetz-attorney-card__image-placeholder')
+      .evaluate((image) => {
+        const bounds = image.getBoundingClientRect();
+        return bounds.width / bounds.height;
+      });
+    expect(firstImageRatio).toBeCloseTo(910 / 500, 2);
     await expect(firstCard.locator('h3')).toHaveText('James L. Goetz');
     const firstBioPreview = firstCard.locator('.goetz-attorney-card__link-preview');
     await expect(firstBioPreview).toHaveCSS('border-top-width', '3px');
@@ -1044,6 +1052,12 @@ test('CTA block previews its selected background and persists its protected exte
       'background-image',
       /linear-gradient.*JAMES-L-2\.jpg/,
     );
+    expect(await cta.evaluate((section) => (
+      Array.from(section.children).map((child) => child.tagName)
+    ))).toEqual(['DIV', 'SPAN']);
+    expect(await cta.locator('.goetz-button').evaluate((button) => (
+      getComputedStyle(button, '::after').content
+    ))).toBe('"›"');
     await selectBlock(page, 'goetz/cta');
     await setLink(
       page,
