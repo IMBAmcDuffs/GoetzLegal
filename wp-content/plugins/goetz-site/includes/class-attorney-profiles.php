@@ -517,8 +517,7 @@ final class Attorney_Profiles
         require_once ABSPATH . 'wp-admin/includes/image.php';
         $metadata = wp_generate_attachment_metadata($attachment_id, $file);
         if (! is_array($metadata)
-            || wp_update_attachment_metadata($attachment_id, $metadata) === false
-            || ! is_array(wp_get_attachment_metadata($attachment_id))) {
+            || ! self::persist_attachment_metadata($attachment_id, $metadata)) {
             wp_delete_attachment($attachment_id, true);
             return 0;
         }
@@ -542,6 +541,25 @@ final class Attorney_Profiles
         }
 
         return valid_image_attachment_id($attachment_id);
+    }
+
+    /**
+     * Persist generated attachment metadata without treating WordPress's
+     * "unchanged" false return as a write failure. Core image generation may
+     * already save the exact metadata while it creates sub-sizes, so exact
+     * readback is the authoritative success condition.
+     *
+     * @param array<string, mixed> $metadata
+     */
+    private static function persist_attachment_metadata(int $attachment_id, array $metadata): bool
+    {
+        $stored_metadata = wp_get_attachment_metadata($attachment_id, true);
+        if ($stored_metadata !== $metadata) {
+            wp_update_attachment_metadata($attachment_id, $metadata);
+            $stored_metadata = wp_get_attachment_metadata($attachment_id, true);
+        }
+
+        return is_array($stored_metadata) && $stored_metadata === $metadata;
     }
 
     /**
