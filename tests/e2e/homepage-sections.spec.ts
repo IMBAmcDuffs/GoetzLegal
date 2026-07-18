@@ -198,6 +198,13 @@ test('production homepage section presentation uses real WordPress rendering and
           section as HTMLElement
         ).style.getPropertyValue('--goetz-cta-background-image')),
       ).toContain('JAMES-L-2.jpg');
+      const ctaLayers = await cta.evaluate((section) => ({
+        backgroundImage: getComputedStyle(section).backgroundImage,
+        overlayColor: getComputedStyle(section, '::before').backgroundColor,
+      }));
+      expect(ctaLayers.backgroundImage).toContain('JAMES-L-2.jpg');
+      expect(ctaLayers.backgroundImage).not.toContain('linear-gradient');
+      expect(ctaLayers.overlayColor).toBe('rgba(45, 45, 45, 0.9)');
 
       const geometry = await page.evaluate(() => {
         const bounds = (selector: string) => {
