@@ -625,7 +625,7 @@ write_phase migrating_homepage
 homepage_plan="$(wp --path="$site" goetz-site migrate homepage --dry-run --format=json)"
 validate_json_status "$homepage_plan" 'ready,noop'
 homepage_apply="$(wp --path="$site" goetz-site migrate homepage --apply --format=json)"
-validate_json_status "$homepage_apply" 'updated,noop'
+validate_json_status "$homepage_apply" 'migrated,noop'
 homepage_noop="$(wp --path="$site" goetz-site migrate homepage --apply --format=json)"
 validate_json_status "$homepage_noop" 'noop'
 

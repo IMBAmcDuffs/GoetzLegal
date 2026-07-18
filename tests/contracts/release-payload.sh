@@ -680,7 +680,7 @@ case "$command_name" in
         if [[ "$(cat "$state/homepage-applied")" == 1 ]]; then printf '{"status":"noop"}\n'; else printf '{"status":"ready"}\n'; fi
       else
         if [[ -f '__RECORD_ROOT__/fail-next-migration' ]]; then find '__RECORD_ROOT__/fail-next-migration' -delete; exit 43; fi
-        if [[ "$(cat "$state/homepage-applied")" == 1 ]]; then printf '{"status":"noop"}\n'; else printf '1\n' > "$state/homepage-applied"; printf '{"status":"updated"}\n'; fi
+        if [[ "$(cat "$state/homepage-applied")" == 1 ]]; then printf '{"status":"noop"}\n'; else printf '1\n' > "$state/homepage-applied"; printf '{"status":"migrated"}\n'; fi
       fi
     elif [[ "$group" == attorney-profile ]]; then
       slug=''
