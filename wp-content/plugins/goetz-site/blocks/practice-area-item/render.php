@@ -14,8 +14,10 @@ $scale_alt = isset($context['goetz/scaleImageAlt']) && is_scalar($context['goetz
     ? (string) $context['goetz/scaleImageAlt']
     : '';
 $scale_image = '';
+$use_legacy_scale_glyph = \Goetz\Site\attachment_matches_managed_seed($scale_id, 'scale_icon')
+    || ($scale_id < 1 && trim($scale_url) === '');
 
-if ($scale_id > 0) {
+if (! $use_legacy_scale_glyph && $scale_id > 0) {
     $scale_image = (string) wp_get_attachment_image(
         $scale_id,
         'thumbnail',
@@ -30,7 +32,7 @@ if ($scale_id > 0) {
     );
 }
 
-if ($scale_image === '' && trim($scale_url) !== '') {
+if (! $use_legacy_scale_glyph && $scale_image === '' && trim($scale_url) !== '') {
     $scale_image = sprintf(
         '<img class="goetz-practice-area-item__scale-image" src="%1$s" alt="%2$s" loading="lazy" decoding="async">',
         esc_url($scale_url),
@@ -39,6 +41,12 @@ if ($scale_image === '' && trim($scale_url) !== '') {
 }
 ?>
 <li <?php echo get_block_wrapper_attributes(['class' => 'goetz-practice-area-item']); ?>>
-    <span class="goetz-practice-area-item__scale"<?php if (trim($scale_alt) === ''): ?> aria-hidden="true"<?php endif; ?>><?php echo $scale_image; ?></span>
+    <span class="goetz-practice-area-item__scale"<?php if ($use_legacy_scale_glyph || trim($scale_alt) === ''): ?> aria-hidden="true"<?php endif; ?>>
+        <?php if ($use_legacy_scale_glyph): ?>
+            <span class="goetz-practice-area-item__scale-glyph" aria-hidden="true">&#xF24E;</span>
+        <?php else: ?>
+            <?php echo $scale_image; ?>
+        <?php endif; ?>
+    </span>
     <b class="goetz-practice-area-item__label"><?php echo esc_html($label); ?></b>
 </li>

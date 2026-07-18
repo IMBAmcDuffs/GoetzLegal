@@ -25,10 +25,17 @@
   font-size: 32px;
   font-weight: 400;
   line-height: 1.1;
-  margin-bottom: 36px;
+  margin-bottom: 0;
   margin-top: 0;
   text-align: center;
   text-transform: none;
+}
+
+.goetz-attorney-grid__mark {
+  display: block;
+  height: 39px;
+  margin: 13px auto 50px;
+  width: 40px;
 }
 
 .goetz-attorney-grid__cards {
@@ -87,6 +94,39 @@
   line-height: 1.1;
   margin: 0 0 14px;
   text-transform: uppercase;
+}
+
+.goetz-attorney-grid .goetz-attorney-card h2 .goetz-attorney-card__accent,
+.goetz-attorney-grid .goetz-attorney-card h3 .goetz-attorney-card__accent {
+  color: var(--goetz-attorney-grid-purple);
+  font-weight: 700;
+}
+
+.editor-styles-wrapper .goetz-attorney-grid .goetz-attorney-card__name-editor {
+  margin: 0 auto 14px;
+  max-width: 100%;
+  position: relative;
+  width: max-content;
+}
+
+.editor-styles-wrapper .goetz-attorney-grid .goetz-attorney-card__name-editor h2,
+.editor-styles-wrapper .goetz-attorney-grid .goetz-attorney-card__name-editor h3 {
+  margin-bottom: 0;
+}
+
+.editor-styles-wrapper .goetz-attorney-grid .goetz-attorney-card__accent-preview {
+  color: var(--goetz-attorney-grid-purple);
+  font-family: Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  left: 0;
+  letter-spacing: 1px;
+  line-height: 1.1;
+  pointer-events: none;
+  position: absolute;
+  text-transform: uppercase;
+  top: 0;
+  white-space: nowrap;
 }
 
 .goetz-attorney-grid .goetz-attorney-card p {
@@ -156,5 +196,10 @@
   .goetz-attorney-grid__heading,
   .goetz-attorney-grid__cards {
     width: 85vw;
+  }
+
+  .goetz-attorney-grid__mark {
+    margin-bottom: 20px;
+    margin-top: 17.9px;
   }
 }

@@ -30,6 +30,14 @@
   width: 100%;
 }
 
+.goetz-intro__media--left .goetz-intro__image {
+  object-position: 50% 0%;
+}
+
+.goetz-intro__media--right .goetz-intro__image {
+  object-position: 0% 0%;
+}
+
 .goetz-intro__content {
   color: #212529;
   min-width: 0;

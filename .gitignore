@@ -43,7 +43,7 @@ wp-config.php
 # Local environment
 /.env
 
-# Local verification artifacts
+# Local verification artifacts, including visual candidates and diffs
 /artifacts/
 /.superpowers/
 

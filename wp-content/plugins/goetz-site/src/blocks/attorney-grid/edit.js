@@ -18,6 +18,15 @@ export const DEFAULT_ATTORNEYS = [
 ];
 
 export function AttorneyGridEdit({ attributes = {}, setAttributes }) {
+  const editorSettings =
+    typeof globalThis.goetzSiteEditorSettings === 'object' &&
+    globalThis.goetzSiteEditorSettings !== null
+      ? globalThis.goetzSiteEditorSettings
+      : {};
+  const attorneyMarkUrl =
+    typeof editorSettings.attorneyMarkUrl === 'string'
+      ? editorSettings.attorneyMarkUrl
+      : '';
   const blockProps = useBlockProps({
     className: 'goetz-attorney-grid goetz-section--attorneys',
   });
@@ -32,6 +41,16 @@ export function AttorneyGridEdit({ attributes = {}, setAttributes }) {
         allowedFormats={[]}
         onChange={(heading) => setAttributes({ heading })}
       />
+      {attributes.heading && attorneyMarkUrl ? (
+        <img
+          className="goetz-attorney-grid__mark"
+          src={attorneyMarkUrl}
+          alt=""
+          aria-hidden="true"
+          width="40"
+          height="39"
+        />
+      ) : null}
       <div className="goetz-attorney-grid__cards">
         <InnerBlocks
           allowedBlocks={['goetz/attorney-card']}

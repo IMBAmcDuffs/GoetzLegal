@@ -28,6 +28,23 @@ $render_image = static function (
 ): string {
     $attachment_id = \Goetz\Site\valid_image_attachment_id($raw_id);
     if ($attachment_id > 0) {
+        $is_legacy_plaque = $side === 'left'
+            && \Goetz\Site\attachment_matches_managed_seed($attachment_id, 'welcome_left');
+
+        if ($is_legacy_plaque) {
+            $legacy_source = wp_get_attachment_image_src($attachment_id, 'medium');
+            if (is_array($legacy_source) && isset($legacy_source[0], $legacy_source[1], $legacy_source[2])) {
+                return sprintf(
+                    '<img class="goetz-intro__image" src="%1$s" alt="%2$s" width="%3$d" height="%4$d" loading="lazy" decoding="async" data-goetz-welcome-image="%5$s">',
+                    esc_url((string) $legacy_source[0]),
+                    esc_attr($alt),
+                    (int) $legacy_source[1],
+                    (int) $legacy_source[2],
+                    esc_attr($side)
+                );
+            }
+        }
+
         $image = wp_get_attachment_image(
             $attachment_id,
             'full',

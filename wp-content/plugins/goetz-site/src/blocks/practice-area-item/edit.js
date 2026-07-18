@@ -16,20 +16,29 @@ export function PracticeAreaItemEdit({
   const scaleAlt = typeof context['goetz/scaleImageAlt'] === 'string'
     ? context['goetz/scaleImageAlt']
     : '';
+  const useLegacyScaleGlyph =
+    !scaleUrl || /\/law-scale-icon-purple\.png(?:[?#].*)?$/i.test(scaleUrl);
 
   return (
     <li {...blockProps}>
       <span
         className="goetz-practice-area-item__scale"
-        aria-hidden={scaleAlt ? undefined : true}
+        aria-hidden={useLegacyScaleGlyph || !scaleAlt ? true : undefined}
       >
-        {scaleUrl ? (
+        {useLegacyScaleGlyph ? (
+          <span
+            className="goetz-practice-area-item__scale-glyph"
+            aria-hidden="true"
+          >
+            {'\uf24e'}
+          </span>
+        ) : (
           <img
             className="goetz-practice-area-item__scale-image"
             src={scaleUrl}
             alt={scaleAlt}
           />
-        ) : null}
+        )}
       </span>
       <RichText
         tagName="b"

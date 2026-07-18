@@ -184,6 +184,7 @@ goetz_site_integration_assert(
         'onlineUrl'       => '/contact/',
         'ctaLabel'        => (string) goetz_site_get_setting('cta_label', 'Get Consultation'),
         'ctaUrl'          => (string) goetz_site_get_setting('cta_url', '/contact/'),
+        'attorneyMarkUrl' => GOETZ_SITE_URL . 'assets/seed/law-scale-icon-purple.png',
         'ctaBackgroundUrl'=> function_exists('goetz_legal_asset_url')
             ? goetz_legal_asset_url(
                 'law-updates-bg.jpg',
@@ -513,13 +514,16 @@ goetz_site_integration_assert(substr_count($attorney_grid_rendered, '<section') 
 goetz_site_integration_assert(substr_count($attorney_grid_rendered, '<h2') === 1, 'Attorney Grid must render exactly one H2.');
 goetz_site_integration_assert(substr_count($attorney_grid_rendered, '<h3') === 2, 'Attorney Grid cards must preserve H3 hierarchy.');
 goetz_site_integration_assert(substr_count($attorney_grid_rendered, '<article') === 2, 'Attorney Grid must render each serialized card exactly once.');
-foreach (['wp-block-goetz-attorney-grid', 'goetz-attorney-grid', 'goetz-section--attorneys', 'goetz-attorney-grid__cards', '&lt;strong&gt;Our Attorneys&lt;/strong&gt;'] as $needle) {
+foreach (['wp-block-goetz-attorney-grid', 'goetz-attorney-grid', 'goetz-section--attorneys', 'goetz-attorney-grid__cards', 'goetz-attorney-grid__mark', GOETZ_SITE_URL . 'assets/seed/law-scale-icon-purple.png', '&lt;strong&gt;Our Attorneys&lt;/strong&gt;'] as $needle) {
     goetz_site_integration_assert(str_contains($attorney_grid_rendered, $needle), "Attorney Grid output changed: {$needle}");
 }
-foreach (['James L. Goetz', 'Gregory W. Goetz'] as $name) {
+foreach ([
+    '<span class="goetz-attorney-card__accent">James L.</span> Goetz',
+    '<span class="goetz-attorney-card__accent">Gregory W.</span> Goetz',
+] as $name_markup) {
     goetz_site_integration_assert(
-        substr_count($attorney_grid_rendered, '>' . $name . '</h3>') === 1,
-        "Attorney Grid child was lost or duplicated: {$name}"
+        substr_count($attorney_grid_rendered, '>' . $name_markup . '</h3>') === 1,
+        "Attorney Grid child was lost, duplicated, or lost its name accent: {$name_markup}"
     );
 }
 $default_heading_grid = do_blocks(serialize_block([
@@ -537,7 +541,10 @@ $default_heading_grid = do_blocks(serialize_block([
 ]));
 goetz_site_integration_assert(
     str_contains($default_heading_grid, '>Attorneys</h2>')
-        && str_contains($default_heading_grid, '<h3>Default Heading Child</h3>'),
+        && str_contains(
+            $default_heading_grid,
+            '<h3><span class="goetz-attorney-card__accent">Default Heading</span> Child</h3>'
+        ),
     'Attorney Grid default heading context must retain the H2/H3 hierarchy.'
 );
 $blank_heading_grid = do_blocks(serialize_block([
@@ -762,6 +769,17 @@ goetz_site_integration_assert(
     str_contains($new_tab_hero, 'href="https://example.test/profile" target="_blank" rel="noopener noreferrer"'),
     'Hero new-tab link attributes are incomplete.'
 );
+$responsive_heading_hero = render_block([
+    'blockName'    => 'goetz/hero',
+    'attrs'        => ['heading' => 'A law firm with<br>seasoned trial<br>attorneys'],
+    'innerBlocks'  => [],
+    'innerHTML'    => '',
+    'innerContent' => [],
+]);
+goetz_site_integration_assert(
+    str_contains($responsive_heading_hero, '<h1>A law firm with<br> seasoned trial<br> attorneys</h1>'),
+    'Hidden responsive hero breaks must retain word-separating whitespace.'
+);
 
 $safe_attorney = render_block([
     'blockName'    => 'goetz/attorney-card',
@@ -875,6 +893,40 @@ try {
     wp_update_attachment_metadata($attachment_id, wp_generate_attachment_metadata($attachment_id, $upload['file']));
     $attachment_url = wp_get_attachment_url($attachment_id);
     goetz_site_integration_assert(is_string($attachment_url) && $attachment_url !== '', 'Temporary attachment URL is unavailable.');
+    $homepage_config = Goetz\Site\Migrations\Media_Seeder::load_config();
+    $homepage_assets = is_array($homepage_config['assets'] ?? null)
+        ? $homepage_config['assets']
+        : [];
+    $clear_managed_seed = static function () use ($attachment_id): void {
+        delete_post_meta($attachment_id, Goetz\Site\Migrations\Media_Seeder::META_KEY);
+        delete_post_meta($attachment_id, Goetz\Site\Migrations\Media_Seeder::CHECKSUM_META_KEY);
+    };
+    $set_managed_seed = static function (string $asset_key) use (
+        $attachment_id,
+        $homepage_assets,
+        $clear_managed_seed
+    ): void {
+        $asset = $homepage_assets[$asset_key] ?? null;
+        goetz_site_integration_assert(
+            is_array($asset)
+                && is_string($asset['seed_key'] ?? null)
+                && is_string($asset['sha256'] ?? null),
+            "Managed seed fixture is unavailable: {$asset_key}"
+        );
+        $clear_managed_seed();
+        add_post_meta(
+            $attachment_id,
+            Goetz\Site\Migrations\Media_Seeder::META_KEY,
+            (string) $asset['seed_key'],
+            true
+        );
+        add_post_meta(
+            $attachment_id,
+            Goetz\Site\Migrations\Media_Seeder::CHECKSUM_META_KEY,
+            (string) $asset['sha256'],
+            true
+        );
+    };
 
     $hero_attachment = render_block([
         'blockName'    => 'goetz/hero',
@@ -909,6 +961,45 @@ try {
     ]);
     goetz_site_integration_assert(str_contains($attorney_attachment, esc_url($attachment_url)), 'Attorney did not prefer its image attachment ID.');
     goetz_site_integration_assert(str_contains($attorney_attachment, 'alt="Attachment Attorney"'), 'Attorney name-as-alt compatibility changed.');
+
+    $gregory_filename_collision = render_block([
+        'blockName'    => 'goetz/attorney-card',
+        'attrs'        => [
+            'name'     => 'Gregory W. Goetz',
+            'imageId'  => $attachment_id,
+            'imageUrl' => 'https://example.test/Greg-Website-Portrait-6.jpg',
+            'imageAlt' => 'Gregory W. Goetz',
+        ],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ]);
+    goetz_site_integration_assert(
+        preg_match('/sizes="(?:auto, )?\(min-width: 782px\) 50vw, 100vw"/', $gregory_filename_collision) === 1
+            && ! str_contains($gregory_filename_collision, '(max-width: 1000px) 1200px'),
+        'A custom attorney attachment was misclassified by a legacy Gregory filename.'
+    );
+    $set_managed_seed('gregory_card');
+    $legacy_gregory_attachment = render_block([
+        'blockName'    => 'goetz/attorney-card',
+        'attrs'        => [
+            'name'     => 'Gregory W. Goetz',
+            'imageId'  => $attachment_id,
+            'imageUrl' => 'https://example.test/custom-gregory-name.jpg',
+            'imageAlt' => 'Gregory W. Goetz',
+        ],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ]);
+    goetz_site_integration_assert(
+        str_contains(
+            $legacy_gregory_attachment,
+            'sizes="(min-width: 990px) and (max-width: 1000px) 1200px, (min-width: 782px) 50vw, 100vw"'
+        ),
+        'The managed Gregory portrait must request its full source at the frozen 990px boundary.'
+    );
+    $clear_managed_seed();
 
     $cta_attachment = render_block([
         'blockName'    => 'goetz/cta',
@@ -966,6 +1057,43 @@ try {
         'Welcome responsive attachment sizes changed.'
     );
 
+    $welcome_filename_collision = render_block([
+        'blockName'    => 'goetz/welcome',
+        'attrs'        => [
+            'leftImageId'  => $attachment_id,
+            'leftImageUrl' => 'https://example.test/PXL_20220818_164549897_2.jpg',
+            'leftImageAlt' => 'Legacy plaque source',
+        ],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ]);
+    goetz_site_integration_assert(
+        str_contains($welcome_filename_collision, 'srcset=')
+            && preg_match('/sizes="(?:auto, )?\(min-width: 601px\) 20vw, 85vw"/', $welcome_filename_collision) === 1,
+        'A custom welcome attachment was misclassified by the legacy plaque filename.'
+    );
+    $set_managed_seed('welcome_left');
+    $welcome_legacy_seed_attachment = render_block([
+        'blockName'    => 'goetz/welcome',
+        'attrs'        => [
+            'leftImageId'  => $attachment_id,
+            'leftImageUrl' => 'https://example.test/custom-plaque-name.jpg',
+            'leftImageAlt' => 'Managed legacy plaque source',
+        ],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ]);
+    $attachment_medium_url = wp_get_attachment_image_url($attachment_id, 'medium');
+    goetz_site_integration_assert(
+        is_string($attachment_medium_url)
+            && str_contains($welcome_legacy_seed_attachment, 'src="' . esc_url($attachment_medium_url) . '"')
+            && ! str_contains($welcome_legacy_seed_attachment, 'srcset='),
+        'Welcome legacy plaque must keep the frozen 300px source instead of a responsive derivative.'
+    );
+    $clear_managed_seed();
+
     $practice_attachment = do_blocks(serialize_block([
         'blockName'    => 'goetz/practice-areas',
         'attrs'        => [
@@ -1002,6 +1130,92 @@ try {
         preg_match('/sizes="(?:auto, )?36px"/', $practice_attachment) === 1,
         'Practice Areas scale attachment sizes changed.'
     );
+
+    $practice_filename_collision = render_block([
+        'blockName'    => 'goetz/practice-areas',
+        'attrs'        => [
+            'backgroundImageId'  => $attachment_id,
+            'backgroundImageUrl' => 'https://example.test/firm-bg.jpg',
+            'backgroundImageAlt' => 'Legacy practice background',
+        ],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ]);
+    goetz_site_integration_assert(
+        str_contains($practice_filename_collision, 'goetz-practice-band__background')
+            && str_contains($practice_filename_collision, 'srcset=')
+            && ! str_contains($practice_filename_collision, 'goetz-practice-band__image--legacy'),
+        'A custom practice attachment was misclassified by the legacy background filename.'
+    );
+    $set_managed_seed('practice_bg');
+    $practice_legacy_seed_attachment = render_block([
+        'blockName'    => 'goetz/practice-areas',
+        'attrs'        => [
+            'backgroundImageId'  => $attachment_id,
+            'backgroundImageUrl' => 'https://example.test/custom-practice-name.jpg',
+            'backgroundImageAlt' => 'Managed legacy practice background',
+        ],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ]);
+    goetz_site_integration_assert(
+        str_contains($practice_legacy_seed_attachment, 'goetz-practice-band__image--legacy')
+            && str_contains($practice_legacy_seed_attachment, esc_url($attachment_url))
+            && ! str_contains($practice_legacy_seed_attachment, 'srcset=')
+            && ! str_contains($practice_legacy_seed_attachment, 'goetz-practice-band__background'),
+        'Managed practice background must keep the frozen CSS-background rendering instead of a responsive derivative.'
+    );
+    $clear_managed_seed();
+
+    $scale_filename_collision = do_blocks(serialize_block([
+        'blockName'    => 'goetz/practice-areas',
+        'attrs'        => [
+            'scaleImageId'  => $attachment_id,
+            'scaleImageUrl' => GOETZ_SITE_URL . 'assets/seed/law-scale-icon-purple.png',
+            'scaleImageAlt' => 'Decorative scale',
+        ],
+        'innerBlocks'  => [[
+            'blockName'    => 'goetz/practice-area-item',
+            'attrs'        => ['label' => 'Corporate'],
+            'innerBlocks'  => [],
+            'innerHTML'    => '',
+            'innerContent' => [],
+        ]],
+        'innerHTML'    => '',
+        'innerContent' => [null],
+    ]));
+    goetz_site_integration_assert(
+        str_contains($scale_filename_collision, 'goetz-practice-area-item__scale-image')
+            && ! str_contains($scale_filename_collision, 'goetz-practice-area-item__scale-glyph'),
+        'A custom scale attachment was misclassified by the managed scale filename.'
+    );
+    $set_managed_seed('scale_icon');
+    $default_scale_attachment = do_blocks(serialize_block([
+        'blockName'    => 'goetz/practice-areas',
+        'attrs'        => [
+            'scaleImageId'  => $attachment_id,
+            'scaleImageUrl' => 'https://example.test/custom-scale-name.png',
+            'scaleImageAlt' => 'Decorative scale',
+        ],
+        'innerBlocks'  => [[
+            'blockName'    => 'goetz/practice-area-item',
+            'attrs'        => ['label' => 'Corporate'],
+            'innerBlocks'  => [],
+            'innerHTML'    => '',
+            'innerContent' => [],
+        ]],
+        'innerHTML'    => '',
+        'innerContent' => [null],
+    ]));
+    goetz_site_integration_assert(
+        str_contains($default_scale_attachment, 'goetz-practice-area-item__scale-glyph')
+            && str_contains($default_scale_attachment, '&#xF24E;')
+            && ! str_contains($default_scale_attachment, 'goetz-practice-area-item__scale-image'),
+        'The managed default scale must use the exact local glyph even when migration retained an attachment ID.'
+    );
+    $clear_managed_seed();
 
     $welcome_invalid_attachment = render_block([
         'blockName'    => 'goetz/welcome',

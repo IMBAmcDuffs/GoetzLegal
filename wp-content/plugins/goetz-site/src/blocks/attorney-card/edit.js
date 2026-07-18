@@ -13,6 +13,12 @@ export function AttorneyCardEdit({ attributes = {}, context = {}, setAttributes 
   const gridHeading = context['goetz/attorneyGridHeading'];
   const isGridCard =
     typeof gridHeading === 'string' && gridHeading.trim() !== '';
+  const nameParts =
+    typeof attributes.name === 'string'
+      ? attributes.name.trim().split(/\s+/).filter(Boolean)
+      : [];
+  const nameAccent =
+    nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : '';
   const blockProps = useBlockProps({
     className: [
       'goetz-editor-preview goetz-editor-preview--attorney-card goetz-attorney-card',
@@ -25,7 +31,7 @@ export function AttorneyCardEdit({ attributes = {}, context = {}, setAttributes 
     <RichText
       tagName={isGridCard ? 'h3' : 'h2'}
       className={
-        isProfile
+        isProfile || isGridCard
           ? 'goetz-attorney-card__heading'
           : 'goetz-editor-preview__heading'
       }
@@ -35,6 +41,18 @@ export function AttorneyCardEdit({ attributes = {}, context = {}, setAttributes 
       onChange={(name) => setAttributes({ name })}
     />
   );
+  const nameEditor =
+    isGridCard && nameAccent ? (
+      <div className="goetz-attorney-card__name-editor">
+        {nameField}
+        <span
+          className="goetz-attorney-card__accent-preview"
+          aria-hidden="true"
+        >
+          {nameAccent}
+        </span>
+      </div>
+    ) : nameField;
   const roleField = (
     <RichText
       tagName="p"
@@ -110,7 +128,7 @@ export function AttorneyCardEdit({ attributes = {}, context = {}, setAttributes 
           )}
           <div className="goetz-attorney-card__body">
             <span className="goetz-attorney-card__mark" aria-hidden="true" />
-            {nameField}
+            {nameEditor}
             {roleField}
             {biographyField}
             <div className="goetz-attorney-card__links" aria-hidden="true">
@@ -142,7 +160,7 @@ export function AttorneyCardEdit({ attributes = {}, context = {}, setAttributes 
             </div>
           )}
           <div className="goetz-attorney-card__body">
-            {nameField}
+            {nameEditor}
             {roleField}
             {biographyField}
             {attributes.profileUrl || attributes.email ? (

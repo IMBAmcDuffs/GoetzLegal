@@ -33,6 +33,9 @@ jest.mock('@wordpress/i18n', () => ({
 }));
 
 import { InnerBlocks } from '@wordpress/block-editor';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import childMetadata from '../../blocks/practice-area-item/block.json';
 import parentMetadata from '../../blocks/practice-areas/block.json';
@@ -187,6 +190,37 @@ describe('Practice Areas InnerBlocks API', () => {
         }),
       }),
     ]);
+  });
+
+  test('uses the exact self-contained legacy scale glyph when no custom icon is selected', () => {
+    const tree = PracticeAreaItemEdit({
+      attributes: { label: 'Corporate' },
+      context: {},
+      setAttributes: jest.fn(),
+    });
+    const glyphs = findAll(
+      tree,
+      (node) => node.props?.className === 'goetz-practice-area-item__scale-glyph'
+    );
+
+    expect(glyphs).toHaveLength(1);
+    expect(glyphs[0].props.children).toBe('\uf24e');
+    expect(findAll(tree, (node) => node.type === 'img')).toHaveLength(0);
+
+    const css = readFileSync(
+      resolve(__dirname, '../../blocks/practice-area-item/style.css'),
+      'utf8'
+    );
+    const fontData = css.match(/data:font\/woff2;base64,([A-Za-z0-9+/=]+)/);
+    expect(fontData).not.toBeNull();
+    expect(
+      createHash('sha256').update(Buffer.from(fontData[1], 'base64')).digest('hex')
+    ).toBe('7984fae0905a4123fae840c0b624e5038be468f0523b4237fb5a48ca590f6155');
+    expect(css).not.toMatch(/https?:\/\//i);
+    expect(css).toMatch(
+      /\.goetz-practice-area-item__scale-glyph\s*\{[^}]*display:\s*block;/s
+    );
+
   });
 
   test('serializes parent children while keeping each dynamic child markup server-rendered', () => {

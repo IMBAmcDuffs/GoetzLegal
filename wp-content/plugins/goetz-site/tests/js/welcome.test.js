@@ -20,6 +20,8 @@ jest.mock('@wordpress/element', () => ({
 jest.mock('@wordpress/i18n', () => ({ __: (value) => value }));
 
 import { useBlockProps } from '@wordpress/block-editor';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import { WelcomeEdit, save } from '../../src/blocks/welcome/edit';
 import { findAll, findByLabel } from './helpers';
@@ -58,6 +60,21 @@ describe('Welcome editor', () => {
       ['https://example.test/left.jpg', 'Left portrait'],
       ['https://example.test/right.jpg', 'Right portrait'],
     ]);
+  });
+
+  test('keeps the exact legacy image crop treatment in frontend and editor CSS', () => {
+    const css = readFileSync(
+      resolve(__dirname, '../../blocks/welcome/style.css'),
+      'utf8'
+    );
+
+    expect(css).toMatch(/\.goetz-intro__image\s*\{[^}]*object-fit:\s*cover;/s);
+    expect(css).toMatch(
+      /\.goetz-intro__media--left \.goetz-intro__image\s*\{[^}]*object-position:\s*50% 0%;/s
+    );
+    expect(css).toMatch(
+      /\.goetz-intro__media--right \.goetz-intro__image\s*\{[^}]*object-position:\s*0% 0%;/s
+    );
   });
 
   test('renders every text and URL field with the allowed formatting contract', () => {

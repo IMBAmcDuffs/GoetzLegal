@@ -15,6 +15,8 @@ jest.mock('@wordpress/element', () => ({
 jest.mock('@wordpress/i18n', () => ({ __: (value) => value }));
 
 import { InnerBlocks, useBlockProps } from '@wordpress/block-editor';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import { findAll, findByLabel } from './helpers';
 
@@ -44,6 +46,10 @@ const expectedAttorneys = [
 ];
 
 describe('Attorney Grid InnerBlocks API', () => {
+  afterEach(() => {
+    delete globalThis.goetzSiteEditorSettings;
+  });
+
   test('registers the exact parent schema without restricting the reusable child', () => {
     expect(metadata).toEqual(expect.objectContaining({
       apiVersion: 3,
@@ -103,5 +109,42 @@ describe('Attorney Grid InnerBlocks API', () => {
     heading.props.onChange('Trial Attorneys');
     expect(setAttributes).toHaveBeenCalledWith({ heading: 'Trial Attorneys' });
     expect(save()).toEqual(expect.objectContaining({ type: InnerBlocks.Content }));
+  });
+
+  test('uses the localized portable attorney mark URL in the editor preview', () => {
+    const { AttorneyGridEdit } = editorModule;
+    globalThis.goetzSiteEditorSettings = {
+      attorneyMarkUrl: 'https://example.test/custom-content/goetz-site/law-scale.png',
+    };
+
+    const tree = AttorneyGridEdit({
+      attributes: { heading: 'Attorneys' },
+      setAttributes: jest.fn(),
+    });
+    const marks = findAll(
+      tree,
+      (node) => node.props?.className === 'goetz-attorney-grid__mark'
+    );
+
+    expect(marks).toHaveLength(1);
+    expect(marks[0].type).toBe('img');
+    expect(marks[0].props).toEqual(expect.objectContaining({
+      src: 'https://example.test/custom-content/goetz-site/law-scale.png',
+      alt: '',
+      'aria-hidden': 'true',
+      width: '40',
+      height: '39',
+    }));
+  });
+
+  test('keeps the legacy portrait crop treatment in frontend and editor CSS', () => {
+    const css = readFileSync(
+      resolve(__dirname, '../../blocks/attorney-grid/style.css'),
+      'utf8'
+    );
+
+    expect(css).toMatch(
+      /\.goetz-attorney-grid \.goetz-attorney-card__image,[^}]*object-fit:\s*cover;/s
+    );
   });
 });

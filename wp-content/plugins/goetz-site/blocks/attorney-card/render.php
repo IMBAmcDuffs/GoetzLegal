@@ -34,8 +34,12 @@ $is_grid_card = is_scalar($grid_heading) && trim((string) $grid_heading) !== '';
 $image_id = \Goetz\Site\valid_image_attachment_id($attrs['imageId']);
 $image_html = '';
 $name_markup = esc_html($name);
+$is_legacy_gregory_portrait = \Goetz\Site\attachment_matches_managed_seed(
+    $image_id,
+    'gregory_card'
+);
 
-if ($is_profile) {
+if ($is_profile || $is_grid_card) {
     $name_parts = preg_split('/\s+/', trim($name)) ?: [];
     if (count($name_parts) > 1) {
         $family_name = (string) array_pop($name_parts);
@@ -48,6 +52,9 @@ if ($is_profile) {
 }
 
 if ($image_id > 0) {
+    $image_sizes = $is_legacy_gregory_portrait
+        ? '(min-width: 990px) and (max-width: 1000px) 1200px, (min-width: 782px) 50vw, 100vw'
+        : '(min-width: 782px) 50vw, 100vw';
     $image_html = (string) wp_get_attachment_image(
         $image_id,
         'large',
@@ -56,9 +63,16 @@ if ($image_id > 0) {
             'class'   => 'goetz-attorney-card__image',
             'alt'     => $image_alt !== '' ? $image_alt : $name,
             'loading' => 'lazy',
-            'sizes'   => '(min-width: 782px) 50vw, 100vw',
+            'sizes'   => $image_sizes,
         ]
     );
+    if ($is_legacy_gregory_portrait && $image_html !== '') {
+        $image_html = str_replace(
+            'sizes="auto, ' . esc_attr($image_sizes) . '"',
+            'sizes="' . esc_attr($image_sizes) . '"',
+            $image_html
+        );
+    }
 }
 
 if ($image_html === '' && trim($image_url) !== '') {

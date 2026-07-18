@@ -18,6 +18,7 @@ $attrs = wp_parse_args(
 $scalar = static fn(mixed $value): string => is_scalar($value) ? (string) $value : '';
 $eyebrow = $scalar($attrs['eyebrow']);
 $heading = \Goetz\Site\heading_markup($scalar($attrs['heading']));
+$heading = preg_replace('/(<br\s*\/?\s*>)(?!\s)/i', '$1 ', $heading) ?? $heading;
 $content = \Goetz\Site\rich_text_markup($scalar($attrs['content']));
 $image_url = $scalar($attrs['imageUrl']);
 $image_alt = $scalar($attrs['imageAlt']);

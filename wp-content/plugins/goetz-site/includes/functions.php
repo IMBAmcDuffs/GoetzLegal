@@ -111,6 +111,43 @@ function valid_image_attachment_id(mixed $value): int
     return $attachment_id;
 }
 
+function attachment_matches_managed_seed(mixed $value, string $asset_key): bool
+{
+    $attachment_id = valid_image_attachment_id($value);
+    if ($attachment_id < 1 || $asset_key === '') {
+        return false;
+    }
+
+    /** @var array<string, mixed>|null $assets */
+    static $assets = null;
+    if ($assets === null) {
+        $config_path = GOETZ_SITE_PATH . 'config/homepage.php';
+        $config = is_readable($config_path) ? require $config_path : [];
+        $assets = is_array($config) && is_array($config['assets'] ?? null)
+            ? $config['assets']
+            : [];
+    }
+
+    $asset = $assets[$asset_key] ?? null;
+    if (! is_array($asset)
+        || ! is_string($asset['seed_key'] ?? null)
+        || ! is_string($asset['sha256'] ?? null)
+        || preg_match('/^[a-f0-9]{64}$/', $asset['sha256']) !== 1) {
+        return false;
+    }
+
+    return get_post_meta(
+        $attachment_id,
+        Migrations\Media_Seeder::META_KEY,
+        false
+    ) === [$asset['seed_key']]
+        && get_post_meta(
+            $attachment_id,
+            Migrations\Media_Seeder::CHECKSUM_META_KEY,
+            false
+        ) === [$asset['sha256']];
+}
+
 function heading_markup(string $value): string
 {
     return wp_kses($value, [

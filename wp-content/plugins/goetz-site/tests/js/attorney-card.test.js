@@ -104,6 +104,25 @@ describe('Attorney Card editor', () => {
     expect(findByLabel(tree, 'Attorney name').props.tagName).toBe(tagName);
   });
 
+  test('previews the given and middle names with the grid accent treatment', () => {
+    const tree = AttorneyCardEdit({
+      attributes: { name: '  James   L.   Goetz  ' },
+      context: { 'goetz/attorneyGridHeading': 'Attorneys' },
+      setAttributes: jest.fn(),
+    });
+    const nameField = findByLabel(tree, 'Attorney name');
+    const accents = findAll(
+      tree,
+      (node) => node.props?.className === 'goetz-attorney-card__accent-preview'
+    );
+
+    expect(nameField.props.className).toContain('goetz-attorney-card__heading');
+    expect(accents).toHaveLength(1);
+    expect(accents[0].type).toBe('span');
+    expect(accents[0].props['aria-hidden']).toBe('true');
+    expect(accents[0].props.children).toBe('James L.');
+  });
+
   test('renders every current field and changes only the edited attribute', () => {
     const attributes = {
       name: 'Jane Goetz',

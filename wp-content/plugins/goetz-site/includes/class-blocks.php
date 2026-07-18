@@ -31,6 +31,7 @@ final class Blocks
                     'onlineUrl'        => '/contact/',
                     'ctaLabel'         => (string) \goetz_site_get_setting('cta_label', 'Get Consultation'),
                     'ctaUrl'           => (string) \goetz_site_get_setting('cta_url', '/contact/'),
+                    'attorneyMarkUrl'  => GOETZ_SITE_URL . 'assets/seed/law-scale-icon-purple.png',
                     'ctaBackgroundUrl' => function_exists('goetz_legal_asset_url')
                         ? \goetz_legal_asset_url(
                             'law-updates-bg.jpg',

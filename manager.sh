@@ -644,6 +644,18 @@ test_public() {
   run_playwright test:public no "$@"
 }
 
+visual_compare() {
+  (( $# == 0 )) || {
+    echo 'visual:compare does not accept additional arguments.' >&2
+    return 2
+  }
+
+  # Keep visual verification on the same validated base/expected-origin path as
+  # every other unauthenticated public test. The Playwright services expose the
+  # frozen legacy fixture read-only and write only below artifacts/.
+  test_public --grep 'visual comparator contract|visual parity'
+}
+
 invoke_capture_child() {
   local mode="$1"
   local reference_url="$2"
@@ -885,6 +897,7 @@ case "${1:-help}" in
   test:e2e:auth) shift; test_e2e_auth "$@" ;;
   test:public) shift; test_public "$@" ;;
   test:capture) shift; test_capture "$@" ;;
+  visual:compare) shift; visual_compare "$@" ;;
   visual:capture-reference) shift; visual_capture_reference "$@" ;;
   test:e2e) shift; test_e2e "$@" ;;
   test:all) shift; test_all "$@" ;;
@@ -917,6 +930,7 @@ Commands:
   test:e2e:auth    Run authenticated Playwright tests
   test:public      Run unauthenticated frontend/SEO/accessibility/visual tests
   test:capture     Run only the read-only legacy capture tests
+  visual:compare   Compare the homepage with the immutable legacy fixture
   visual:capture-reference  Write the one-time immutable legacy homepage baseline
   test:e2e         Run authenticated and public tests against local WordPress
   test:all         Run all local contracts, unit, integration, compat, and E2E tests
