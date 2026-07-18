@@ -7,6 +7,22 @@ use Brain\Monkey\Functions;
 use Goetz\Site\Plugin;
 use PHPUnit\Framework\TestCase;
 
+if (! class_exists('WP_CLI')) {
+    final class WP_CLI
+    {
+        /** @var array<int, array{string, callable}> */
+        public static array $commands = [];
+
+        public static function add_command(string $name, callable $callback): void
+        {
+            self::$commands[] = [$name, $callback];
+        }
+    }
+}
+if (! defined('WP_CLI')) {
+    define('WP_CLI', true);
+}
+
 $plugin_class = dirname(__DIR__, 2) . '/includes/class-plugin.php';
 if (is_readable($plugin_class)) {
     require_once $plugin_class;
@@ -18,6 +34,7 @@ final class PluginBootTest extends TestCase
     {
         parent::setUp();
         Monkey\setUp();
+        WP_CLI::$commands = [];
     }
 
     protected function tearDown(): void
@@ -56,6 +73,7 @@ final class PluginBootTest extends TestCase
             ['admin_init', 'Goetz\\Site\\Settings\\Settings_Page::register', 10, 1],
             ['admin_enqueue_scripts', 'Goetz\\Site\\Settings\\Settings_Page::enqueue', 10, 1],
             ['init', 'Goetz\\Site\\Attorney_Profiles::register_patterns', 20, 1],
+            ['wp_head', 'Goetz\\Site\\SEO\\Schema::render_fallback', 20, 1],
             ['init', 'Goetz\\Site\\Blocks::register', 10, 1],
         ] as $expected) {
             self::assertSame(1, count(array_filter(
@@ -65,6 +83,9 @@ final class PluginBootTest extends TestCase
         }
         foreach ([
             ['block_editor_settings_all', 'Goetz\\Site\\Editor\\Homepage_Editor::filter_settings', 10, 2],
+            ['wpseo_schema_organization', 'Goetz\\Site\\SEO\\Schema::filter_organization', 10, 2],
+            ['wpseo_sitemap_exclude_post_type', 'Goetz\\Site\\SEO\\Schema::exclude_post_type', 10, 2],
+            ['wpseo_sitemap_exclude_taxonomy', 'Goetz\\Site\\SEO\\Schema::exclude_taxonomy', 10, 2],
             ['site_status_tests', 'Goetz\\Site\\register_site_health_tests', 10, 1],
         ] as $expected) {
             self::assertSame(1, count(array_filter(
@@ -73,6 +94,11 @@ final class PluginBootTest extends TestCase
             )), 'Runtime filter was not registered exactly once: ' . $expected[0] . ' ' . $expected[1]);
         }
         self::assertSame(1, $loadedActions);
+        self::assertSame([
+            ['goetz-site attorney-profile', [Goetz\Site\Attorney_Profiles::class, 'cli']],
+            ['goetz-site migrate homepage', [Goetz\Site\CLI\Migrate_Command::class, 'run']],
+            ['goetz-site seo configure', [Goetz\Site\CLI\SEO_Command::class, 'run']],
+        ], WP_CLI::$commands);
     }
 
     private static function callbackId(mixed $callback): string

@@ -12,6 +12,9 @@ require_once __DIR__ . '/migrations/class-site-bootstrap.php';
 require_once __DIR__ . '/migrations/class-homepage-migration.php';
 require_once __DIR__ . '/editor/class-homepage-editor.php';
 require_once __DIR__ . '/cli/class-migrate-command.php';
+require_once __DIR__ . '/seo/class-yoast-configurator.php';
+require_once __DIR__ . '/seo/class-schema.php';
+require_once __DIR__ . '/cli/class-seo-command.php';
 
 final class Plugin
 {
@@ -27,10 +30,15 @@ final class Plugin
         Settings\Settings_Page::hooks();
         Attorney_Profiles::hooks();
         Editor\Homepage_Editor::hooks();
+        SEO\Schema::hooks();
         if (defined('WP_CLI') && WP_CLI) {
             \WP_CLI::add_command(
                 'goetz-site migrate homepage',
                 [CLI\Migrate_Command::class, 'run']
+            );
+            \WP_CLI::add_command(
+                'goetz-site seo configure',
+                [CLI\SEO_Command::class, 'run']
             );
         }
         add_action('init', [Blocks::class, 'register']);

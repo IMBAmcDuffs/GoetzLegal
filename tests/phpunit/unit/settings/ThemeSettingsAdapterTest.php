@@ -45,7 +45,8 @@ final class ThemeSettingsAdapterTest extends TestCase
             'header'  => GOETZ_TEST_ROOT . '/wp-content/themes/goetz-legal/header.php',
             'footer'  => GOETZ_TEST_ROOT . '/wp-content/themes/goetz-legal/footer.php',
             'contact' => GOETZ_TEST_ROOT . '/wp-content/themes/goetz-legal/template-parts/content-contact.php',
-            'schema'  => GOETZ_TEST_ROOT . '/wp-content/themes/goetz-legal/functions.php',
+            'schema'  => GOETZ_TEST_ROOT . '/wp-content/plugins/goetz-site/includes/seo/class-schema.php',
+            'theme'   => GOETZ_TEST_ROOT . '/wp-content/themes/goetz-legal/functions.php',
             'cta'     => GOETZ_TEST_ROOT . '/wp-content/plugins/goetz-site/blocks/cta/render.php',
         ];
         $sources = array_map(static fn(string $file): string => (string) file_get_contents($file), $files);
@@ -59,9 +60,13 @@ final class ThemeSettingsAdapterTest extends TestCase
         self::assertStringContainsString('goetz_legal_formatted_address()', $sources['contact']);
         self::assertStringContainsString('goetz_legal_map_url()', $sources['contact']);
         self::assertStringContainsString("goetz_legal_setting('phone_e164'", $sources['contact']);
-        foreach (['business_name', 'alternate_name', 'phone_display', 'email', 'street_address', 'locality', 'region', 'postal_code', 'country_code', 'location_label'] as $key) {
-            self::assertStringContainsString("goetz_legal_setting('{$key}'", $sources['schema']);
+        self::assertStringContainsString('Site_Settings::all()', $sources['schema']);
+        foreach (['business_name', 'alternate_name', 'phone_e164', 'email', 'street_address', 'locality', 'region', 'postal_code', 'country_code', 'location_label'] as $key) {
+            self::assertStringContainsString("['{$key}']", $sources['schema']);
         }
+        self::assertStringNotContainsString('goetz_legal_schema_fallback', $sources['theme']);
+        self::assertStringNotContainsString('application/ld+json', $sources['theme']);
+        self::assertStringContainsString('application/ld+json', $sources['schema']);
         self::assertStringContainsString("goetz_site_get_setting('cta_label'", $sources['cta']);
         self::assertStringContainsString("goetz_site_get_setting('cta_url'", $sources['cta']);
     }

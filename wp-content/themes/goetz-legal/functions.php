@@ -268,48 +268,6 @@ function goetz_legal_defer_scripts(string $tag, string $handle): string
 add_filter('script_loader_tag', 'goetz_legal_defer_scripts', 10, 2);
 
 /**
- * Add LegalService schema only when Yoast is not handling schema output.
- */
-function goetz_legal_schema_fallback(): void
-{
-    if (defined('WPSEO_VERSION')) {
-        return;
-    }
-
-    $schema = [
-        '@context' => 'https://schema.org',
-        '@type'    => 'LegalService',
-        'name'     => goetz_legal_setting('business_name', 'Goetz & Goetz'),
-        'alternateName' => goetz_legal_setting('alternate_name', 'Goetz and Goetz'),
-        'url'      => home_url('/'),
-        'telephone'=> goetz_legal_setting('phone_e164', goetz_legal_setting('phone_display', '(239) 936-2841')),
-        'email'    => goetz_legal_setting('email', 'info@goetzlegal.com'),
-        'address'  => [
-            '@type'           => 'PostalAddress',
-            'streetAddress'   => goetz_legal_setting('street_address', '33 Barkley Cir Ste 100'),
-            'addressLocality' => goetz_legal_setting('locality', 'Fort Myers'),
-            'addressRegion'   => goetz_legal_setting('region', 'FL'),
-            'postalCode'      => goetz_legal_setting('postal_code', '33907'),
-            'addressCountry'  => goetz_legal_setting('country_code', 'US'),
-        ],
-        'areaServed' => goetz_legal_setting('location_label', 'Fort Myers, Florida'),
-    ];
-
-    $social_image_id = (int) goetz_legal_setting('social_image_id', 0);
-    if ($social_image_id > 0) {
-        $social_image_url = wp_get_attachment_image_url($social_image_id, 'full');
-        if ($social_image_url) {
-            $schema['image'] = $social_image_url;
-        }
-    }
-
-    echo '<script type="application/ld+json">'
-        . wp_json_encode($schema, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES)
-        . '</script>' . "\n";
-}
-add_action('wp_head', 'goetz_legal_schema_fallback', 20);
-
-/**
  * Remove unnecessary WordPress header meta tags.
  */
 function goetz_legal_clean_head(): void
