@@ -315,6 +315,17 @@ grep -Fq "$release_sha" "$payload/release.json" || fail 'release.json commit doe
 grep -Fq 'release.json' "$payload/RELEASE-MANIFEST.sha256" || fail 'manifest does not hash release.json'
 ! grep -Fq 'RELEASE-MANIFEST.sha256' "$payload/RELEASE-MANIFEST.sha256" || fail 'manifest hashes itself'
 "$build_repo/scripts/release/verify.sh" "$release_dir" "$release_sha" >/dev/null
+cp scripts/release/common.sh "$build_repo/scripts/release/common.sh"
+(
+  cd "$build_repo"
+  GOETZ_RELEASE_ROOT="$build_repo/scripts/release"
+  GOETZ_COMMAND_NAME='relative-release-contract'
+  # shellcheck source=scripts/release/common.sh
+  source "$GOETZ_RELEASE_ROOT/common.sh"
+  goetz_release_identity "__dev/releases/$release_sha"
+  [[ "$GOETZ_RELEASE_SHA" == "$release_sha" ]] ||
+    fail 'relative release directory resolved the wrong commit identity'
+)
 
 invalid_schema="$fixture/invalid-schema"
 cp -a "$payload" "$invalid_schema"

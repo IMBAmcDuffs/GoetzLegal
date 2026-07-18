@@ -111,7 +111,7 @@ goetz_release_identity() {
   payload="$(goetz_release_payload_path "$release_dir")" || goetz_fail 'release payload metadata is missing'
   "$GOETZ_RELEASE_ROOT/verify.sh" "$payload" >/dev/null
   GOETZ_RELEASE_PAYLOAD="$payload"
-  GOETZ_RELEASE_SHA="$(node -e 'const d=require(process.argv[1]);process.stdout.write(d.commit)' "$payload/release.json")"
+  GOETZ_RELEASE_SHA="$(node -e 'const fs=require("fs");const d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(d.commit)' "$payload/release.json")"
   GOETZ_RELEASE_DIGEST="$(sha256sum "$payload/RELEASE-MANIFEST.sha256" | cut -d' ' -f1)"
   [[ "$GOETZ_RELEASE_SHA" =~ ^[0-9a-f]{40}$ && "$GOETZ_RELEASE_DIGEST" =~ ^[0-9a-f]{64}$ ]] ||
     goetz_fail 'release identity is invalid'
