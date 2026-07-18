@@ -52,6 +52,22 @@ final class ThemeSettingsAdapterTest extends TestCase
         ];
         $sources = array_map(static fn(string $file): string => (string) file_get_contents($file), $files);
 
+        self::assertStringContainsString(
+            "require_once __DIR__ . '/inc/site-settings.php';",
+            $sources['header'],
+            'The header must bootstrap settings independently when PHP-FPM still has the previous functions.php cached.'
+        );
+        self::assertStringContainsString(
+            "require_once __DIR__ . '/inc/site-settings.php';",
+            $sources['footer'],
+            'The footer must bootstrap settings independently when it is rendered without the header.'
+        );
+        self::assertStringContainsString(
+            "require_once dirname(__DIR__) . '/inc/site-settings.php';",
+            $sources['contact'],
+            'The contact template must bootstrap settings independently before calling adapter helpers.'
+        );
+
         foreach (['business_name', 'phone_display', 'phone_e164', 'email'] as $key) {
             self::assertStringContainsString("goetz_legal_setting('{$key}'", $sources['header']);
         }

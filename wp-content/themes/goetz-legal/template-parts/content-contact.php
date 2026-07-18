@@ -5,6 +5,8 @@
  * @package GoetzLegal
  */
 
+require_once dirname(__DIR__) . '/inc/site-settings.php';
+
 $page_hero_url = function_exists('goetz_legal_asset_url')
     ? goetz_legal_asset_url('bann-img.jpg', 'https://goetzlegal.com/wp-content/uploads/2022/08/bann-img.jpg')
     : 'https://goetzlegal.com/wp-content/uploads/2022/08/bann-img.jpg';

@@ -4,6 +4,8 @@
  *
  * @package GoetzLegal
  */
+require_once __DIR__ . '/inc/site-settings.php';
+
 $business_name = (string) goetz_legal_setting('business_name', 'Goetz & Goetz');
 $phone_display = (string) goetz_legal_setting('phone_display', GOETZ_LEGAL_PHONE_DISPLAY);
 $phone_e164 = (string) goetz_legal_setting('phone_e164', GOETZ_LEGAL_PHONE_TEL);
