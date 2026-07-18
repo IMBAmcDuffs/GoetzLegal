@@ -406,10 +406,12 @@ done
 printf '%s\n' 'https://goetzgoetz.kinsta.cloud' > "$remote_state/home"
 printf '%s\n' 'https://goetzgoetz.kinsta.cloud' > "$remote_state/siteurl"
 printf '%s\n' 'goetz-legal' > "$remote_state/active-theme"
-: > "$remote_state/active-plugins"
+printf '%s\n' 'goetz-site' > "$remote_state/active-plugins"
 printf '%s\n' 'kinsta-mu-plugins' > "$remote_state/must-use-plugins"
 printf '0\n' > "$remote_state/homepage-applied"
 printf '0\n' > "$remote_state/seo-applied"
+printf '1\n' > "$remote_state/james-profile-state"
+printf '0\n' > "$remote_state/gregory-profile-state"
 printf 'original-db-state\n' > "$remote_state/db-marker"
 
 cat > "$remote_bin/ssh-add" <<'SSHADD'
@@ -543,6 +545,8 @@ case "$command_name" in
         printf 'plugins=%s\n' "$(base64 -w0 "$state/active-plugins")"
         printf 'homepage=%s\n' "$(cat "$state/homepage-applied")"
         printf 'seo=%s\n' "$(cat "$state/seo-applied")"
+        printf 'james_profile=%s\n' "$(cat "$state/james-profile-state")"
+        printf 'gregory_profile=%s\n' "$(cat "$state/gregory-profile-state")"
         printf 'marker=%s\n' "$(cat "$state/db-marker")"
       } > "$path"
     elif [[ "$action" == import ]]; then
@@ -552,6 +556,8 @@ case "$command_name" in
       sed -n 's/^plugins=//p' "$path" | base64 -d > "$state/active-plugins"
       sed -n 's/^homepage=//p' "$path" > "$state/homepage-applied"
       sed -n 's/^seo=//p' "$path" > "$state/seo-applied"
+      sed -n 's/^james_profile=//p' "$path" > "$state/james-profile-state"
+      sed -n 's/^gregory_profile=//p' "$path" > "$state/gregory-profile-state"
       sed -n 's/^marker=//p' "$path" > "$state/db-marker"
       if [[ -f '__RECORD_ROOT__/signal-next-rollback-db-import' ]]; then
         find '__RECORD_ROOT__/signal-next-rollback-db-import' -delete
@@ -594,19 +600,70 @@ case "$command_name" in
           sleep 0.05
         fi
         ;;
+      is-active)
+        grep -Fqx "$1" "$state/active-plugins"
+        ;;
       *) exit 85 ;;
     esac
     ;;
   goetz-site)
-    group="$1"; action="$2"; shift 2
+    group="$1"; shift
+    action="${1:-}"
     if [[ "$group" == migrate && "$action" == homepage ]]; then
+      shift
       if [[ " $* " == *' --dry-run '* ]]; then
         if [[ "$(cat "$state/homepage-applied")" == 1 ]]; then printf '{"status":"noop"}\n'; else printf '{"status":"ready"}\n'; fi
       else
         if [[ -f '__RECORD_ROOT__/fail-next-migration' ]]; then find '__RECORD_ROOT__/fail-next-migration' -delete; exit 43; fi
         if [[ "$(cat "$state/homepage-applied")" == 1 ]]; then printf '{"status":"noop"}\n'; else printf '1\n' > "$state/homepage-applied"; printf '{"status":"updated"}\n'; fi
       fi
+    elif [[ "$group" == attorney-profile ]]; then
+      slug=''
+      apply=0
+      verify=0
+      for argument in "$@"; do
+        case "$argument" in
+          --slug=james-l-goetz|--slug=gregory-w-goetz) slug="${argument#*=}" ;;
+          --apply) apply=1 ;;
+          --verify) verify=1 ;;
+          *) exit 86 ;;
+        esac
+      done
+      [[ -n "$slug" && ! ( "$apply" == 1 && "$verify" == 1 ) ]] || exit 86
+      if [[ "$slug" == james-l-goetz ]]; then
+        profile_state="$state/james-profile-state"
+      else
+        profile_state="$state/gregory-profile-state"
+      fi
+      read -r current_profile_state < "$profile_state"
+      [[ "$current_profile_state" == 0 || "$current_profile_state" == 1 || "$current_profile_state" == 2 ||
+        "$current_profile_state" == 3 || "$current_profile_state" == 4 || "$current_profile_state" == 5 ]] || exit 86
+      if (( verify == 1 )); then
+        if [[ "$slug" == gregory-w-goetz && -f '__RECORD_ROOT__/fail-next-gregory-profile-verify' ]]; then
+          find '__RECORD_ROOT__/fail-next-gregory-profile-verify' -delete
+          exit 48
+        fi
+        case "$current_profile_state" in
+          1) printf '{"slug":"%s","status":"verified"}\n' "$slug" ;;
+          2) printf '{"slug":"%s","status":"managed_modified"}\n' "$slug" ;;
+          *) exit 48 ;;
+        esac
+      elif (( apply == 1 )); then
+        [[ "$current_profile_state" == 0 ]] || exit 48
+        printf '1\n' > "$profile_state"
+        printf 'Success: Migrated attorney profile %s.\n' "$slug"
+      else
+        case "$current_profile_state" in
+          0) printf '{"slug":"%s","status":"ready"}\n' "$slug" ;;
+          1) printf '{"slug":"%s","status":"noop"}\n' "$slug" ;;
+          2) printf '{"slug":"%s","status":"managed_modified"}\n' "$slug" ;;
+          3) printf '{"slug":"%s","status":"conflict"}\n' "$slug" ;;
+          4) printf '{"slug":"%s","status":"migration_evidence_mismatch"}\n' "$slug" ;;
+          5) printf '{"slug":"%s","status":"version_conflict"}\n' "$slug" ;;
+        esac
+      fi
     elif [[ "$group" == seo && "$action" == configure ]]; then
+      shift
       if [[ -f '__RECORD_ROOT__/force-cutover-seo-second-configured' ]]; then
         seo_count=0
         [[ ! -s '__RECORD_ROOT__/cutover-seo-count' ]] || read -r seo_count < '__RECORD_ROOT__/cutover-seo-count'
@@ -684,10 +741,17 @@ WP
 cat > "$remote_bin/php" <<'PHP'
 #!/usr/bin/env bash
 set -euo pipefail
+emit=0
 allowed="${@: -1}"
+if [[ "$allowed" == emit ]]; then
+  emit=1
+  arguments=("$@")
+  allowed="${arguments[$((${#arguments[@]} - 2))]}"
+fi
 document="$(cat)"
 status="$(printf '%s' "$document" | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
 [[ -n "$status" && ",$allowed," == *",$status,"* ]]
+if (( emit == 1 )); then printf '%s' "$status"; fi
 PHP
 
 cat > "$remote_bin/curl" <<'CURL'
@@ -785,8 +849,21 @@ remote_env=(
 )
 
 run_remote() {
-  /usr/bin/env -i "${remote_env[@]}" "$@"
+  local -a command=("$@")
+  if [[ "${command[0]:-}" == "$remote_repo/scripts/release/remote-apply.sh" ]]; then
+    command+=(--write-freeze-confirmed)
+  fi
+  /usr/bin/env -i "${remote_env[@]}" "${command[@]}"
 }
+
+ssh_before_missing_freeze="$(cat "$record_root/ssh-count" 2>/dev/null || printf '0\n')"
+if /usr/bin/env -i "${remote_env[@]}" "$remote_repo/scripts/release/remote-apply.sh" \
+  --release-dir="$release_dir" --backup-id=contract-missing-freeze >/dev/null 2>&1; then
+  fail 'deployment accepted no operator write-freeze confirmation'
+fi
+ssh_after_missing_freeze="$(cat "$record_root/ssh-count" 2>/dev/null || printf '0\n')"
+[[ "$ssh_after_missing_freeze" == "$ssh_before_missing_freeze" ]] ||
+  fail 'deployment contacted Kinsta before rejecting a missing write-freeze confirmation'
 
 # Local backup packets have the same containment requirement as build output.
 # A redirected __dev ancestor must fail before transport or any external write.
@@ -851,13 +928,14 @@ if run_remote "$remote_repo/scripts/release/remote-backup.sh" \
   fail 'pre-domain-cutover backup accepted a legacy current-release receipt'
 fi
 
-# The first packet proves that an empty active-plugin inventory is legitimate
-# and couples the intended release, staging origin, purpose, and timestamp.
+# The deployment packet records the already-active goetz-site runtime required
+# for the pre-mutation attorney-profile planner, and couples the intended
+# release, staging origin, purpose, and timestamp.
 run_remote "$remote_repo/scripts/release/remote-backup.sh" \
   --backup-id=contract-deploy --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
 local_backup="$remote_repo/__dev/kinsta-backups/contract-deploy"
-[[ -f "$local_backup/active-plugins.txt" && ! -s "$local_backup/active-plugins.txt" ]] ||
-  fail 'backup rejected or altered a valid empty active-plugin inventory'
+[[ "$(cat "$local_backup/active-plugins.txt")" == 'goetz-site' ]] ||
+  fail 'backup did not preserve the required active goetz-site runtime'
 for required_backup_entry in database.sql uploads.tar.gz code-state.tsv active-theme.txt home-url.txt site-url.txt \
   BACKUP-METADATA release-state.tsv SHA256SUMS LOCAL-VERIFICATION; do
   [[ -s "$local_backup/$required_backup_entry" ]] || fail "backup packet is missing $required_backup_entry"
@@ -867,18 +945,142 @@ assert_contains "$local_backup/BACKUP-METADATA" "release_commit=$release_sha"
 assert_contains "$local_backup/BACKUP-METADATA" "release_manifest_sha256=$first_manifest_hash"
 (cd "$local_backup" && sha256sum -c SHA256SUMS >/dev/null) || fail 'downloaded backup hashes do not verify'
 
+# A profile conflict created after the backup must be detected by the newly
+# synced, already-active goetz-site code before any database write. Recovery
+# restores code only: the client edit and post-backup upload remain intact and
+# no older database or uploads packet is imported. The two migration-evidence
+# conflict states have the same fail-closed boundary.
+printf 'post-backup client upload\n' > "$remote_site/wp-content/uploads/post-backup-client-edit.txt"
+preflight_imports_before="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
+for blocked_profile_state in 3 4 5; do
+  printf '%s\n' "$blocked_profile_state" > "$remote_state/gregory-profile-state"
+  if run_remote "$remote_repo/scripts/release/remote-apply.sh" \
+    --release-dir="$release_dir" --backup-id=contract-deploy >/dev/null 2>&1; then
+    fail "deployment accepted blocked Gregory preflight state $blocked_profile_state"
+  fi
+  assert_contains "$remote_private/operations/deploy-$release_sha-contract-deploy.status" \
+    'phase=auto_code_rollback_succeeded'
+  [[ "$(cat "$remote_state/gregory-profile-state")" == "$blocked_profile_state" ]] ||
+    fail "code-only recovery erased Gregory preflight state $blocked_profile_state"
+  [[ "$(cat "$remote_site/wp-content/uploads/post-backup-client-edit.txt")" == 'post-backup client upload' ]] ||
+    fail 'code-only recovery restored uploads over a post-backup client write'
+  [[ -f "$remote_site/wp-content/plugins/goetz-site/old.txt" ]] ||
+    fail 'code-only recovery did not restore the prior goetz-site runtime'
+done
+preflight_imports_after="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
+(( preflight_imports_after == preflight_imports_before )) ||
+  fail 'attorney-profile preflight failure imported the older backup database'
+find "$remote_site/wp-content/uploads/post-backup-client-edit.txt" -delete
+printf '0\n' > "$remote_state/gregory-profile-state"
+
+# Attorney migrations run after the read-only ownership preflight and before
+# homepage writes. A failed post-migration verification must use full packet
+# recovery because Gregory's profile and portrait may already have changed.
+post_apply_imports_before="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
+touch "$record_root/fail-next-gregory-profile-verify"
+if run_remote "$remote_repo/scripts/release/remote-apply.sh" \
+  --release-dir="$release_dir" --backup-id=contract-deploy >/dev/null 2>&1; then
+  fail 'deployment ignored a failed Gregory attorney-profile verification'
+fi
+assert_contains "$remote_private/operations/deploy-$release_sha-contract-deploy.status" \
+  'phase=auto_rollback_succeeded'
+post_apply_imports_after="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
+(( post_apply_imports_after == post_apply_imports_before + 1 )) ||
+  fail 'post-apply attorney verification failure ran zero or multiple database restores'
+[[ "$(cat "$remote_state/james-profile-state")" == 1 ]] ||
+  fail 'attorney-profile recovery changed the pre-existing James profile'
+[[ "$(cat "$remote_state/gregory-profile-state")" == 0 ]] ||
+  fail 'attorney-profile recovery did not restore Gregory legacy content'
+
+deploy_wp_start="$(wc -l < "$record_root/wp.log")"
 run_remote "$remote_repo/scripts/release/remote-apply.sh" \
   --release-dir="$release_dir" --backup-id=contract-deploy >/dev/null
+deploy_wp_log="$fixture/deploy-success.wp.log"
+tail -n "+$((deploy_wp_start + 1))" "$record_root/wp.log" > "$deploy_wp_log"
 deploy_receipt="$remote_private/operations/deploy-$release_sha-contract-deploy.status"
 assert_contains "$deploy_receipt" 'phase=complete'
 assert_contains "$remote_private/state/current-release" "release_commit=$release_sha"
 [[ -f "$remote_site/wp-content/debug.log" ]] || fail 'deployment removed the historical debug log'
 [[ "$(cat "$remote_state/home")" == 'https://goetzgoetz.kinsta.cloud' ]] || fail 'deployment changed the staging origin'
+[[ "$(cat "$remote_state/james-profile-state")" == 1 ]] || fail 'deployment regressed the current James profile'
+[[ "$(cat "$remote_state/gregory-profile-state")" == 1 ]] || fail 'deployment did not migrate the Gregory profile'
+[[ "$(grep -Fxc '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=james-l-goetz>' "$deploy_wp_log")" -eq 3 ]] ||
+  fail 'deployment did not preflight, preview, and post-preview James exactly once each'
+[[ "$(grep -Fxc '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=james-l-goetz><--apply>' "$deploy_wp_log" || true)" -eq 0 ]] ||
+  fail 'deployment rewrote the already-current James profile'
+[[ "$(grep -Fxc '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=james-l-goetz><--verify>' "$deploy_wp_log")" -eq 1 ]] ||
+  fail 'deployment did not verify James exactly once'
+[[ "$(grep -Fxc '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=gregory-w-goetz>' "$deploy_wp_log")" -eq 3 ]] ||
+  fail 'deployment did not preflight, preview, and post-preview Gregory exactly once each'
+[[ "$(grep -Fxc '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=gregory-w-goetz><--apply>' "$deploy_wp_log")" -eq 1 ]] ||
+  fail 'deployment did not apply the guarded Gregory migration exactly once'
+[[ "$(grep -Fxc '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=gregory-w-goetz><--verify>' "$deploy_wp_log")" -eq 1 ]] ||
+  fail 'deployment did not verify Gregory exactly once'
+awk '
+  /<goetz-site><migrate><homepage><--apply><--format=json>/ { homepage_apply++; if (homepage_apply == 2) homepage_noop = NR }
+  /<goetz-site><attorney-profile><--slug=james-l-goetz>$/ {
+    james_preview++
+    if (james_preview == 1) james_preflight = NR
+    else if (james_preview == 2) james_first = NR
+    else james_post = NR
+  }
+  /<goetz-site><attorney-profile><--slug=james-l-goetz><--verify>/ { james_verify = NR }
+  /<goetz-site><attorney-profile><--slug=gregory-w-goetz>$/ {
+    gregory_preview++
+    if (gregory_preview == 1) gregory_preflight = NR
+    else if (gregory_preview == 2) gregory_first = NR
+    else gregory_post = NR
+  }
+  /<goetz-site><attorney-profile><--slug=gregory-w-goetz><--apply>/ { gregory_apply = NR }
+  /<goetz-site><attorney-profile><--slug=gregory-w-goetz><--verify>/ { gregory_verify = NR }
+  /<goetz-site><seo><configure><--strict><--format=json>/ { if (!seo) seo = NR }
+  END {
+    exit !(homepage_apply == 2 && james_preview == 3 && gregory_preview == 3 &&
+      james_preflight < gregory_preflight && gregory_preflight < james_first &&
+      james_first < james_post && james_post < james_verify && james_verify < gregory_first &&
+      gregory_first < gregory_apply && gregory_apply < gregory_post && gregory_post < gregory_verify &&
+      gregory_verify < homepage_noop && homepage_noop < seo)
+  }
+' "$deploy_wp_log" || fail 'attorney preflight, migrations, homepage, and SEO ran out of fail-closed order'
 remote_verify_output="$fixture/remote-verify.out"
+remote_verify_wp_start="$(wc -l < "$record_root/wp.log")"
 run_remote "$remote_repo/scripts/release/verify-remote.sh" \
   --release-dir="$release_dir" --origin=https://goetzgoetz.kinsta.cloud > "$remote_verify_output"
+remote_verify_wp_log="$fixture/remote-verify.wp.log"
+tail -n "+$((remote_verify_wp_start + 1))" "$record_root/wp.log" > "$remote_verify_wp_log"
 assert_contains "$remote_verify_output" 'remote_verification=passed'
 assert_contains "$remote_verify_output" "release_commit=$release_sha"
+[[ "$(grep -Fxc '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=james-l-goetz><--verify>' "$remote_verify_wp_log")" -eq 1 ]] ||
+  fail 'remote verifier did not verify James exactly once'
+[[ "$(grep -Fxc '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=gregory-w-goetz><--verify>' "$remote_verify_wp_log")" -eq 1 ]] ||
+  fail 'remote verifier did not verify Gregory exactly once'
+
+# Remote verification fails closed for an unmigrated profile, but accepts a
+# versioned profile that a client has legitimately edited after migration.
+printf '0\n' > "$remote_state/gregory-profile-state"
+if run_remote "$remote_repo/scripts/release/verify-remote.sh" \
+  --release-dir="$release_dir" --origin=https://goetzgoetz.kinsta.cloud >/dev/null 2>&1; then
+  fail 'remote verifier accepted an unmigrated Gregory profile'
+fi
+printf '1\n' > "$remote_state/gregory-profile-state"
+
+printf '2\n' > "$remote_state/james-profile-state"
+run_remote "$remote_repo/scripts/release/remote-backup.sh" \
+  --backup-id=contract-attorney-managed --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
+managed_wp_start="$(wc -l < "$record_root/wp.log")"
+run_remote "$remote_repo/scripts/release/remote-apply.sh" \
+  --release-dir="$release_dir" --backup-id=contract-attorney-managed >/dev/null
+managed_wp_log="$fixture/deploy-attorney-managed.wp.log"
+tail -n "+$((managed_wp_start + 1))" "$record_root/wp.log" > "$managed_wp_log"
+[[ "$(cat "$remote_state/james-profile-state")" == 2 ]] ||
+  fail 'deployment overwrote a managed James profile editor change'
+[[ "$(grep -Fxc '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=james-l-goetz><--apply>' "$managed_wp_log" || true)" -eq 0 ]] ||
+  fail 'deployment applied over a managed James profile editor change'
+grep -Fq '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=james-l-goetz><--verify>' "$managed_wp_log" ||
+  fail 'deployment did not verify the managed James profile'
+run_remote "$remote_repo/scripts/release/verify-remote.sh" \
+  --release-dir="$release_dir" --origin=https://goetzgoetz.kinsta.cloud >/dev/null
+printf '1\n' > "$remote_state/james-profile-state"
 
 # A dangling managed root is neither safely present nor safely absent. Backup
 # discovery must reject it and must never publish a complete success receipt.
@@ -1236,13 +1438,17 @@ truncate -s "$debug_size_before_deploy_smoke" "$remote_site/wp-content/debug.log
 # holding the shared lock and leave a durable recovery receipt.
 run_remote "$remote_repo/scripts/release/remote-backup.sh" \
   --backup-id=contract-failure --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
+mid_sync_imports_before="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
 printf 'wp-content/themes/goetz-legal\n' > "$record_root/fail-source-once"
 if run_remote "$remote_repo/scripts/release/remote-apply.sh" \
   --release-dir="$release_dir" --backup-id=contract-failure >/dev/null 2>&1; then
   fail 'injected deployment failure unexpectedly succeeded'
 fi
 failure_receipt="$remote_private/operations/deploy-$release_sha-contract-failure.status"
-assert_contains "$failure_receipt" 'phase=auto_rollback_succeeded'
+assert_contains "$failure_receipt" 'phase=auto_code_rollback_succeeded'
+mid_sync_imports_after="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
+(( mid_sync_imports_after == mid_sync_imports_before )) ||
+  fail 'mid-sync code-only recovery imported the database'
 [[ "$(cat "$remote_state/home")" == 'https://goetzgoetz.kinsta.cloud' ]] || fail 'deployment recovery did not restore the database origin'
 
 # ERR must be handled only by the parent remote shell. A WP-CLI failure inside
@@ -1286,8 +1492,7 @@ assert_contains "$remote_private/operations/deploy-$release_sha-contract-deploy-
 # the packet database and files were otherwise restored successfully.
 run_remote "$remote_repo/scripts/release/remote-backup.sh" \
   --backup-id=contract-recovery-purge --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
-printf 'wp-content/themes/goetz-legal\n' > "$record_root/fail-source-once"
-touch "$record_root/fail-next-kinsta"
+touch "$record_root/fail-next-migration" "$record_root/fail-next-kinsta"
 if run_remote "$remote_repo/scripts/release/remote-apply.sh" \
   --release-dir="$release_dir" --backup-id=contract-recovery-purge >/dev/null 2>&1; then
   fail 'deployment with an injected Kinsta purge failure during recovery unexpectedly succeeded'
@@ -1319,8 +1524,7 @@ assert_contains "$deploy_purge_receipt" 'phase=auto_rollback_succeeded'
 run_remote "$remote_repo/scripts/release/remote-backup.sh" \
   --backup-id=contract-disconnect --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
 imports_before="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
-printf 'wp-content/themes/goetz-legal\n' > "$record_root/fail-source-once"
-touch "$record_root/disconnect-after-apply"
+touch "$record_root/fail-next-migration" "$record_root/disconnect-after-apply"
 deploy_disconnect_error="$fixture/deploy-disconnect.err"
 if run_remote "$remote_repo/scripts/release/remote-apply.sh" \
   --release-dir="$release_dir" --backup-id=contract-disconnect >/dev/null 2>"$deploy_disconnect_error"; then

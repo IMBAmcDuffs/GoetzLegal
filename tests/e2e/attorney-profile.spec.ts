@@ -198,3 +198,107 @@ test('James profile stacks like the reference at 390px', async ({ page }) => {
   expect(geometry.footerBottom.height).toBeCloseTo(140, 0);
   await expectNoHorizontalOverflow(page);
 });
+
+test('Gregory profile uses the same editable reference layout on desktop', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const response = await page.goto('/gregory-w-goetz/', { waitUntil: 'networkidle' });
+  expect(response?.ok()).toBeTruthy();
+
+  await expect(page.locator('main h1')).toHaveCount(1);
+  await expect(page.locator('.goetz-page-hero h1')).toHaveText('Gregory W Goetz');
+
+  const section = page.locator('.goetz-attorney-profile-section');
+  const profile = section.locator('.goetz-attorney-card--profile');
+  const portrait = profile.locator('.goetz-attorney-card__image');
+  const body = profile.locator('.goetz-attorney-card__body');
+
+  await expect(section).toHaveCount(1);
+  await expect(profile).toHaveCount(1);
+  await expect(profile.locator('h2')).toHaveText('Gregory W. Goetz');
+  await expect(profile.locator('h2 .goetz-attorney-card__accent')).toHaveText('Gregory W.');
+  await expect(profile.locator('.goetz-attorney-card__mark')).toHaveAttribute('alt', '');
+  await expect(portrait).toHaveAttribute('srcset', /Greg-Website-Portrait-6/);
+  await expect(profile.locator('p')).toContainText(
+    'Mr. Gregory W. Goetz was born and raised here in Fort Myers, Florida.'
+  );
+  await expect(profile.locator('p')).toContainText(
+    'Please do not hesitate to contact Goetz & Goetz, to settle your legal issues.'
+  );
+  await expect(profile.getByRole('link', { name: 'Email Gregory W. Goetz' })).toHaveAttribute(
+    'href',
+    'mailto:info@goetzlegal.com'
+  );
+
+  const geometry = await page.evaluate(() => {
+    const rect = (selector: string) => {
+      const element = document.querySelector(selector);
+      if (!(element instanceof HTMLElement)) throw new Error(`Missing ${selector}`);
+      const box = element.getBoundingClientRect();
+      return { x: box.x, y: box.y + window.scrollY, width: box.width, height: box.height };
+    };
+    return {
+      section: rect('.goetz-attorney-profile-section'),
+      profile: rect('.goetz-attorney-card--profile'),
+      portrait: rect('.goetz-attorney-card--profile .goetz-attorney-card__image'),
+      body: rect('.goetz-attorney-card--profile .goetz-attorney-card__body'),
+      cta: rect('.goetz-cta'),
+      background: getComputedStyle(document.querySelector('.goetz-attorney-profile-section')!).backgroundColor,
+    };
+  });
+
+  expect(geometry.background).toBe('rgb(255, 255, 255)');
+  expect(geometry.profile.x).toBeCloseTo(180, 0);
+  expect(geometry.profile.width).toBeCloseTo(1080, 0);
+  expect(geometry.portrait.width).toBeCloseTo(393, 0);
+  expect(geometry.portrait.height).toBeCloseTo(285, 0);
+  expect(geometry.body.x - (geometry.portrait.x + geometry.portrait.width)).toBeCloseTo(65, 0);
+  expect(geometry.portrait.y - geometry.section.y).toBeCloseTo(130, 0);
+  expect(geometry.cta.y - (geometry.section.y + geometry.section.height)).toBeCloseTo(1, 0);
+  await expectNoHorizontalOverflow(page);
+});
+
+test('Gregory profile stacks like James at 390px', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const response = await page.goto('/gregory-w-goetz/', { waitUntil: 'networkidle' });
+  expect(response?.ok()).toBeTruthy();
+
+  const profile = page.locator('.goetz-attorney-card--profile');
+  await expect(profile.locator('p')).toContainText(
+    'Mr. Gregory W. Goetz was born and raised here in Fort Myers, Florida.'
+  );
+  await expect(profile.locator('p')).toContainText(
+    'Please do not hesitate to contact Goetz & Goetz, to settle your legal issues.'
+  );
+  await expect(profile.getByRole('link', { name: 'Email Gregory W. Goetz' })).toHaveAttribute(
+    'href',
+    'mailto:info@goetzlegal.com'
+  );
+
+  const geometry = await page.evaluate(() => {
+    const rect = (selector: string) => {
+      const element = document.querySelector(selector);
+      if (!(element instanceof HTMLElement)) throw new Error(`Missing ${selector}`);
+      const box = element.getBoundingClientRect();
+      return { x: box.x, y: box.y + window.scrollY, width: box.width, height: box.height };
+    };
+    return {
+      section: rect('.goetz-attorney-profile-section'),
+      portrait: rect('.goetz-attorney-card--profile .goetz-attorney-card__image'),
+      body: rect('.goetz-attorney-card--profile .goetz-attorney-card__body'),
+      cta: rect('.goetz-cta'),
+      footer: rect('.site-footer'),
+      headingFont: parseFloat(getComputedStyle(document.querySelector('.goetz-attorney-card--profile h2')!).fontSize),
+    };
+  });
+
+  expect(geometry.portrait.x).toBeCloseTo(29.25, 2);
+  expect(geometry.portrait.width).toBeCloseTo(331.5, 1);
+  expect(geometry.portrait.height).toBeCloseTo(240.4, 1);
+  expect(geometry.portrait.y - geometry.section.y).toBeCloseTo(130, 0);
+  expect(geometry.body.y - (geometry.portrait.y + geometry.portrait.height)).toBeCloseTo(20, 0);
+  expect(geometry.headingFont).toBeCloseTo(25.6, 0);
+  expect(geometry.body.y + geometry.body.height).toBeLessThan(geometry.section.y + geometry.section.height);
+  expect(geometry.cta.y - (geometry.section.y + geometry.section.height)).toBeCloseTo(1, 0);
+  expect(geometry.footer.y).toBeGreaterThanOrEqual(geometry.cta.y + geometry.cta.height - 1);
+  await expectNoHorizontalOverflow(page);
+});

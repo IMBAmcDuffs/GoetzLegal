@@ -53,7 +53,8 @@ database or broad WordPress directories.
 
 Configure the fixed Kinsta endpoint and an independently verified pinned host
 key in the ignored `.env`, unlock the SSH identity in an isolated agent, then
-use the guarded sequence below:
+establish an uninterrupted WordPress write freeze before creating the backup
+and keep it active through remote verification. Use the guarded sequence below:
 
 ```bash
 release_sha="$(git rev-parse HEAD)"
@@ -66,7 +67,8 @@ release_dir="__dev/releases/$release_sha"
   --release-dir="$release_dir"
 ./manager.sh remote:deploy \
   --release-dir="$release_dir" \
-  --backup-id=<pre-deployment-backup-id>
+  --backup-id=<pre-deployment-backup-id> \
+  --write-freeze-confirmed
 ./manager.sh verify:remote \
   --release-dir="$release_dir" \
   --origin=https://goetzgoetz.kinsta.cloud
@@ -125,14 +127,18 @@ Existing page content can be replaced only through the direct WP-CLI force path.
 
 There is intentionally no manager import shortcut and no wp-admin force control.
 
-The James attorney profile has a repository-owned, idempotent content migration. Preview it before applying:
+The James and Gregory attorney profiles have repository-owned, idempotent content migrations. Preview each profile before applying it:
 
 ```bash
 ./manager.sh wp goetz-site attorney-profile --slug=james-l-goetz
 ./manager.sh wp goetz-site attorney-profile --slug=james-l-goetz --apply
+./manager.sh wp goetz-site attorney-profile --slug=james-l-goetz --verify
+./manager.sh wp goetz-site attorney-profile --slug=gregory-w-goetz
+./manager.sh wp goetz-site attorney-profile --slug=gregory-w-goetz --apply
+./manager.sh wp goetz-site attorney-profile --slug=gregory-w-goetz --verify
 ```
 
-The apply path checksum-verifies and seeds the exact portrait into the Media Library, saves the original page content once, and refuses to overwrite a page after an editor changes the managed version. A second preview reports `status=noop`.
+The apply path checksum-verifies and seeds the exact portrait into the Media Library, saves the original page content once, and refuses to overwrite a page after an editor changes the managed version. A second preview reports `status=noop`; verification also proves the version marker and exact original backup are present. The guarded production deployment runs these checks for both profiles automatically.
 
 ## Source Details
 

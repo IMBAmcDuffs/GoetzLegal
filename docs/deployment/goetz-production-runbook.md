@@ -52,6 +52,8 @@ Run the builder twice before deployment and compare the file list, every file ha
 
 ## Coupled pre-deployment backup
 
+Establish an operator-enforced WordPress write freeze **before** creating the backup. During this window, allow no wp-admin/editor saves, form submissions, imports, scheduled content jobs, integration writes, or other database/upload mutations. Keep the freeze in place through deployment completion and remote verification. If the freeze was interrupted after the backup, discard that packet and create a new one after re-establishing the freeze.
+
 Create a release-coupled backup before any code, database, or URL mutation:
 
 ```bash
@@ -78,28 +80,34 @@ Deploy the verified payload with the backup ID from the preceding step:
 ```bash
 ./manager.sh remote:deploy \
   --release-dir="__dev/releases/$release_sha" \
-  --backup-id=<pre-deployment-backup-id>
+  --backup-id=<pre-deployment-backup-id> \
+  --write-freeze-confirmed
 ```
+
+`--write-freeze-confirmed` is a required operator attestation that the uninterrupted freeze began before this exact backup and is still active. The deploy command rejects a missing or duplicate confirmation before contacting Kinsta. Never pass it based only on an earlier maintenance window or an unverified assumption that no one is editing.
 
 The release is uploaded to the commit-specific private directory and verified there before application. Synchronization uses `--delete-delay` only inside each named allowlisted theme or plugin directory. The deployment never targets `/wp-content/plugins/`, `/wp-content/mu-plugins/`, `/wp-content/uploads/`, `wp-admin`, `wp-includes`, or the WordPress root.
 
 Private uploads are resumable in one commit/backup-specific incoming directory. The incoming directory and payload destination are physically validated and rejected if any symlink is present before rsync receives the destination. The completed payload is checksum-verified and published with one directory rename; an existing verified release is safely reused. The shared remote mutation lock serializes backup, deployment, cutover, rollback, and read verification.
 
-Before the first runtime write, deployment verifies every source/target physical path, rejects symlinked parents or named roots, rejects multisite, verifies the complete release and backup packets, pre-extracts the recovery packet, and writes a durable phase receipt. It also establishes `wp-content/debug.log` as a normal regular-file checkpoint, safely creating an empty mode-`0600` file when it is initially absent, and records its inode, byte offset, and prefix SHA-256. The remote application order is:
+Before the first runtime write, deployment verifies every source/target physical path, rejects symlinked parents or named roots, rejects multisite, requires the existing `goetz-site` runtime to be active, verifies the complete release and backup packets, pre-extracts the recovery packet, and writes a durable phase receipt. It also establishes `wp-content/debug.log` as a normal regular-file checkpoint, safely creating an empty mode-`0600` file when it is initially absent, and records its inode, byte offset, and prefix SHA-256. The remote application order is:
 
 1. verify the release and coupled backup manifests;
-2. deploy and activate `goetz-site`;
-3. deploy the theme, migration plugin, Yoast SEO 28.0, and WPForms Lite 1.10.0.4 as separate roots;
-4. validate generated files and exact runtime versions;
-5. activate the required theme/plugins;
-6. run homepage dry-run, apply, and second no-op;
-7. run strict SEO configuration twice and reindex Yoast;
-8. flush rewrites, object cache, and Kinsta page cache;
-9. reject any missing, symlinked, replaced, truncated, or prefix-rewritten debug checkpoint and reject PHP fatal/parse errors written after the captured offset;
-10. scan the full public tree, smoke all seven routes, then scan the same debug checkpoint again so request-generated fatal/parse errors cannot escape the gate;
-11. atomically publish the current-release and completed-operation receipts.
+2. sync only the already-active `goetz-site` code;
+3. use that newly synced code to preview James and Gregory without changing the database or uploads, failing closed on conflicts, missing pages, version conflicts, or migration-evidence mismatches;
+4. migrate the two attorney profiles, applying only a recognized legacy or missing-seed state, then require a `noop` or protected `managed_modified` post-preview and verified migration evidence;
+5. deploy the theme, migration plugin, Yoast SEO 28.0, and WPForms Lite 1.10.0.4 as separate roots;
+6. validate generated files and exact runtime versions, then activate the required theme/plugins;
+7. run homepage dry-run, apply, and second no-op;
+8. run strict SEO configuration twice and reindex Yoast;
+9. flush rewrites, object cache, and Kinsta page cache;
+10. reject any missing, symlinked, replaced, truncated, or prefix-rewritten debug checkpoint and reject PHP fatal/parse errors written after the captured offset;
+11. scan the full public tree, smoke all seven routes, then scan the same debug checkpoint again so request-generated fatal/parse errors cannot escape the gate;
+12. atomically publish the current-release and completed-operation receipts.
 
-If a command fails or HUP/INT/TERM interrupts the remote process after runtime mutation begins, the same remote process runs the recovery path exactly once while it still owns the mutation lock, restoring the coupled code, uploads, database, activation/URL state, and caches. It records either `auto_rollback_succeeded` or `auto_rollback_failed_manual_intervention_required`. A local transport error never starts a second racing rollback and does not prove whether the remote handler ran; treat the outcome as unknown, inspect the durable receipt, then use the printed manager rollback command if manual recovery is required.
+The attorney-profile gate is deliberately non-destructive for already-managed content. An exact current profile must remain a no-op, and a profile that the client edited after its guarded migration must remain `managed_modified`; deployment verifies that state without applying over the editor's changes. Any unknown profile, missing page, unrecognized legacy content, absent migration evidence, or disagreement between preview and verification fails the deployment and invokes the coupled recovery path.
+
+If attorney preflight or another command fails after code sync but before any database/upload mutation, the same remote process restores only the coupled code and records `auto_code_rollback_succeeded`; it deliberately does not import the older database or uploads packet. After a profile apply or activation/database mutation begins, failure or HUP/INT/TERM uses full packet recovery exactly once while the process still owns the mutation lock, restoring code, uploads, database, activation/URL state, and caches. It records either `auto_rollback_succeeded` or `auto_rollback_failed_manual_intervention_required`. The uninterrupted write freeze is still mandatory because no deployment script can prevent an external editor or integration from writing between the read-only preflight and the first guarded mutation. A local transport error never starts a second racing rollback and does not prove whether the remote handler ran; treat the outcome as unknown, inspect the durable receipt, then use the printed manager rollback command if manual recovery is required.
 
 Complete the full local/remote route, editor, SEO, accessibility, and visual gates against the Kinsta staging origin before taking a cutover backup.
 
@@ -109,7 +117,7 @@ Complete the full local/remote route, editor, SEO, accessibility, and visual gat
   --origin=https://goetzgoetz.kinsta.cloud
 ```
 
-Remote verification holds a shared lock, requires the exact current-release digest, uses explicit `wp --path`, rejects multisite, and compares the complete file tree and SHA-256 hashes of all five deployed runtime roots with the private payload. Missing, unexpected, or changed runtime files all fail verification. It also verifies activation, requires the debug-log inode/size/prefix checkpoint to remain continuous and its size to stay stable through each scan, rejects new fatal/parse bytes, scans the complete public tree, smokes all seven routes, and repeats the debug scan afterward. Every smoke may follow HTTPS redirects only when the effective URL remains the exact requested origin and route.
+Remote verification holds a shared lock, requires the exact current-release digest, uses explicit `wp --path`, rejects multisite, and compares the complete file tree and SHA-256 hashes of all five deployed runtime roots with the private payload. Missing, unexpected, or changed runtime files all fail verification. It also requires verified versioned migration evidence for both James and Gregory while accepting protected post-migration editor changes, verifies activation, requires the debug-log inode/size/prefix checkpoint to remain continuous and its size to stay stable through each scan, rejects new fatal/parse bytes, scans the complete public tree, smokes all seven routes, and repeats the debug scan afterward. Every smoke may follow HTTPS redirects only when the effective URL remains the exact requested origin and route.
 
 Run the authenticated, non-mutating editor/settings acceptance gate separately. Use the staging origin before cutover and the production origin after cutover:
 

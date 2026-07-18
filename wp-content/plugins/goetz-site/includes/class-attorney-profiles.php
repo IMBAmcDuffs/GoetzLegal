@@ -14,6 +14,10 @@ final class Attorney_Profiles
     private const JAMES_PORTRAIT_SEED_KEY = 'james-l-goetz:portrait:v1';
     private const JAMES_PORTRAIT_SHA256 = '56678363da05812f16be9f34a3ffb13ca450fc33a848022c5ea69f35b7c6fadc';
     private const JAMES_LEGACY_PORTRAIT_URL = 'https://goetzlegal.com/wp-content/uploads/2022/08/JAMES-L.jpg';
+    private const GREGORY_PORTRAIT_FILENAME = 'Greg-Website-Portrait-6.jpg';
+    private const GREGORY_PORTRAIT_SEED_KEY = 'gregory-w-goetz:portrait:v1';
+    private const GREGORY_PORTRAIT_SHA256 = '94b15c45d6ef4a152ed45935a06a52671cdff17934da1d7a9e03fdad94092755';
+    private const GREGORY_LEGACY_PORTRAIT_URL = 'https://goetzlegal.com/wp-content/uploads/2025/03/Greg-Website-Portrait-6.jpg';
 
     public static function hooks(): void
     {
@@ -72,42 +76,82 @@ final class Attorney_Profiles
      */
     public static function profile_for_slug(string $slug): ?array
     {
-        if ($slug !== 'james-l-goetz') {
+        $definition = self::profile_definition($slug);
+        if ($definition === null) {
             return null;
         }
 
-        $image_id = self::attachment_id_by_seed_key(self::JAMES_PORTRAIT_SEED_KEY);
-        if (! self::attachment_matches_seed($image_id, self::JAMES_PORTRAIT_SHA256)) {
-            $candidate_id = self::attachment_id_by_basename(self::JAMES_PORTRAIT_FILENAME);
-            $image_id = self::attachment_matches_seed($candidate_id, self::JAMES_PORTRAIT_SHA256)
-                ? $candidate_id
+        $seed_ids = self::attachment_ids_by_seed_key($definition['seedKey']);
+        $image_id = count($seed_ids) === 1
+            && self::attachment_has_unique_seed_key($seed_ids[0], $definition['seedKey'])
+            && self::attachment_matches_seed($seed_ids[0], $definition['sha256'])
+                ? $seed_ids[0]
                 : 0;
-        }
         $image_url = $image_id > 0 ? (string) wp_get_attachment_url($image_id) : '';
         $email = function_exists('goetz_site_get_setting')
             ? (string) goetz_site_get_setting('email', 'info@goetzlegal.com')
             : 'info@goetzlegal.com';
-        $legacy_image_url = self::localized_source_media_url(self::JAMES_LEGACY_PORTRAIT_URL);
-        $bio = 'James L. Goetz was born in Erie, Pennsylvania. He grew up in Oil City and Girard, Pennsylvania working on his father’s farm and coal mines until he went to college. Mr. Goetz’s received his B.A. in political science and a minor in economics from the University of Pittsburgh in 1969. He earned his Juris Doctorate from University of Akron in 1972. From 1972 to 1975, Mr. Goetz served as a Captain in the Judge Advocate General Corps of the United States Army. Mr. Goetz later moved to Fort Myers to begin practicing law at Roberts and Watson, where he later became a partner. Mr. Goetz has been practicing law in Fort Myers for more than 50 years. Mr. Goetz’s Practice Areas include: Estates, Real Estate, Trial, Probate, Construction Law, Bankruptcy, and Commercial Litigation. Mr. Goetz was admitted to the Ohio Bar, Florida Bar, and U.S. Court of Military Appeals in 1972, U.S. Supreme Court in 1976, and also admitted to practice in the United States District Court, Middle District of Florida. Mr. Goetz is a member of the Florida and Ohio State Bar and is also a member of the Lee County Bar association.';
-        $legacy_bio = strtr($bio, [
-            'father’s'             => "father's",
-            'Mr. Goetz’s received' => 'Mr. Goetz received',
-            'Mr. Goetz’s Practice' => "Mr. Goetz's Practice",
-        ]);
+        $legacy_image_url = self::localized_source_media_url($definition['legacyImageUrl']);
 
         return [
-            'name'             => 'James L. Goetz',
-            'bio'              => $bio,
-            'legacyBio'        => $legacy_bio,
+            'name'             => $definition['name'],
+            'bio'              => $definition['bio'],
+            'legacyBio'        => $definition['legacyBio'],
             'email'            => sanitize_email($email),
-            'legacyEmail'      => 'info@goetzlegal.com',
+            'legacyEmail'      => $definition['legacyEmail'],
             'imageId'          => $image_id,
             'imageUrl'         => $image_url,
-            'imageAlt'         => 'James L. Goetz portrait',
+            'imageAlt'         => $definition['imageAlt'],
             'legacyImageUrl'   => $legacy_image_url,
-            'legacyImageAlt'   => 'James L. Goetz',
-            'legacyEmailLabel' => 'Email James L. Goetz',
+            'legacyImageAlt'   => $definition['legacyImageAlt'],
+            'legacyEmailLabel' => 'Email ' . $definition['name'],
         ];
+    }
+
+    /**
+     * @return array{name: string, bio: string, legacyBio: string, legacyEmail: string, filename: string, seedKey: string, sha256: string, legacyImageUrl: string, imageAlt: string, legacyImageAlt: string}|null
+     */
+    private static function profile_definition(string $slug): ?array
+    {
+        if ($slug === 'james-l-goetz') {
+            $bio = 'James L. Goetz was born in Erie, Pennsylvania. He grew up in Oil City and Girard, Pennsylvania working on his father’s farm and coal mines until he went to college. Mr. Goetz’s received his B.A. in political science and a minor in economics from the University of Pittsburgh in 1969. He earned his Juris Doctorate from University of Akron in 1972. From 1972 to 1975, Mr. Goetz served as a Captain in the Judge Advocate General Corps of the United States Army. Mr. Goetz later moved to Fort Myers to begin practicing law at Roberts and Watson, where he later became a partner. Mr. Goetz has been practicing law in Fort Myers for more than 50 years. Mr. Goetz’s Practice Areas include: Estates, Real Estate, Trial, Probate, Construction Law, Bankruptcy, and Commercial Litigation. Mr. Goetz was admitted to the Ohio Bar, Florida Bar, and U.S. Court of Military Appeals in 1972, U.S. Supreme Court in 1976, and also admitted to practice in the United States District Court, Middle District of Florida. Mr. Goetz is a member of the Florida and Ohio State Bar and is also a member of the Lee County Bar association.';
+
+            return [
+                'name'           => 'James L. Goetz',
+                'bio'            => $bio,
+                'legacyBio'      => strtr($bio, [
+                    'father’s'             => "father's",
+                    'Mr. Goetz’s received' => 'Mr. Goetz received',
+                    'Mr. Goetz’s Practice' => "Mr. Goetz's Practice",
+                ]),
+                'legacyEmail'    => 'info@goetzlegal.com',
+                'filename'       => self::JAMES_PORTRAIT_FILENAME,
+                'seedKey'        => self::JAMES_PORTRAIT_SEED_KEY,
+                'sha256'         => self::JAMES_PORTRAIT_SHA256,
+                'legacyImageUrl' => self::JAMES_LEGACY_PORTRAIT_URL,
+                'imageAlt'       => 'James L. Goetz portrait',
+                'legacyImageAlt' => 'James L. Goetz',
+            ];
+        }
+
+        if ($slug === 'gregory-w-goetz') {
+            $bio = 'Mr. Gregory W. Goetz was born and raised here in Fort Myers, Florida. He attended Fort Myers High School and then was accepted to University of Florida. Mr. Goetz graduated with honors with a degree in history. Mr. Goetz spent time at other Universities while on break from University of Florida. He took extended classes in history at Boston University, economics and history at University of Cambridge, U.K., and criminology at Florida Gulf Coast University, so that he would receive a more diverse education. After graduating from University of Florida, Mr. Goetz worked in Fort Myers for a few years before going to law school at Nova Southeastern University. While at the college of Law, Mr. Goetz worked at the Broward County State Attorney’s Office, Homicide Unit. Mr. Goetz sat second chair on numerous high profile murder cases and helped the prosecutors with their arguments and motions. Mr. Goetz successfully argued his way on Moot Court, received a book award and countless other top grades while in law school. When Mr. Goetz graduated from law school he began working with the 20th Judicial Public Defenders’ Office where he began representing juveniles with misdemeanor and felony charges. Mr. Goetz was promoted to a felony division, where he did numerous jury trials as lead attorney, from jury selection to verdict. Mr. Goetz also appeared in court on behalf of clients for arraignments, motions, violations of probation, civil injunctions, and pleas. After Mr. Goetz’s tenure at the Public Defender’s Office was over, he went to work at James L. Goetz P.A. While being employed at Goetz & Goetz, Mr. Goetz has done numerous hearings, motions, and appeals to the 2nd D.C.A. Mr. Goetz has extensive legal knowledge and is more than willing to hear your issues and resolve those issues to the best of his ability. Mr. Goetz is licensed to practice law in all Florida State Courts, District of Columbia, and the following Federal Courts: United States Supreme Court, United States Court of Appeals for the Eleventh Circuit, United States Middle District of Florida, and United States Southern District of Florida. Please do not hesitate to contact Goetz & Goetz, to settle your legal issues.';
+
+            return [
+                'name'           => 'Gregory W. Goetz',
+                'bio'            => $bio,
+                'legacyBio'      => str_replace('’', "'", $bio),
+                'legacyEmail'    => 'goetzg@goetzlegal.com',
+                'filename'       => self::GREGORY_PORTRAIT_FILENAME,
+                'seedKey'        => self::GREGORY_PORTRAIT_SEED_KEY,
+                'sha256'         => self::GREGORY_PORTRAIT_SHA256,
+                'legacyImageUrl' => self::GREGORY_LEGACY_PORTRAIT_URL,
+                'imageAlt'       => 'Gregory W. Goetz portrait',
+                'legacyImageAlt' => 'Gregory W. Goetz',
+            ];
+        }
+
+        return null;
     }
 
     /**
@@ -127,23 +171,127 @@ final class Attorney_Profiles
             return ['slug' => $slug, 'status' => 'missing_page', 'post_id' => 0];
         }
 
-        if ((int) ($profile['imageId'] ?? 0) < 1 || (string) ($profile['imageUrl'] ?? '') === '') {
-            return ['slug' => $slug, 'status' => 'missing_image', 'post_id' => (int) $page->ID];
+        return ['slug' => $slug] + self::plan_post((int) $page->ID, $profile);
+    }
+
+    /**
+     * Build the deterministic content plan after a configured slug has been
+     * resolved. Content ownership is decided before media readiness so an
+     * edited page can never trigger a portrait write.
+     *
+     * @param array<string, mixed> $profile
+     * @return array{status: string, post_id: int}
+     */
+    public static function plan_post(int $post_id, array $profile): array
+    {
+        $page = get_post($post_id);
+        if (! $page instanceof \WP_Post || $page->post_type !== 'page') {
+            return ['status' => 'missing', 'post_id' => $post_id];
         }
 
         $desired_content = self::canonical_content($profile);
-        if ($page->post_content === $desired_content) {
-            return ['slug' => $slug, 'status' => 'noop', 'post_id' => (int) $page->ID];
+        $has_media = (int) ($profile['imageId'] ?? 0) > 0
+            && (string) ($profile['imageUrl'] ?? '') !== '';
+        if ($has_media && $page->post_content === $desired_content) {
+            $verification = self::verify_post($post_id, $profile);
+            return [
+                'status'  => ($verification['status'] ?? '') === 'verified'
+                    ? 'noop'
+                    : 'migration_evidence_mismatch',
+                'post_id' => $post_id,
+            ];
         }
 
-        if ((int) get_post_meta($page->ID, self::VERSION_META, true) >= self::VERSION) {
-            return ['slug' => $slug, 'status' => 'managed_modified', 'post_id' => (int) $page->ID];
+        $versions = get_post_meta($post_id, self::VERSION_META, false);
+        if ($versions !== []) {
+            if (count($versions) !== 1 || (string) $versions[0] !== (string) self::VERSION) {
+                return ['status' => 'version_conflict', 'post_id' => $post_id];
+            }
+
+            if (! $has_media) {
+                $backups = get_post_meta($post_id, self::BACKUP_META, false);
+                return [
+                    'status'  => count($backups) === 1
+                        && is_string($backups[0])
+                        && self::matches_legacy_content($backups[0], $profile)
+                            ? 'missing_image'
+                            : 'migration_evidence_mismatch',
+                    'post_id' => $post_id,
+                ];
+            }
+
+            $verification = self::verify_post($post_id, $profile);
+            return [
+                'status'  => ($verification['status'] ?? '') === 'managed_modified'
+                    ? 'managed_modified'
+                    : 'migration_evidence_mismatch',
+                'post_id' => $post_id,
+            ];
+        }
+
+        if (! self::matches_legacy_content($page->post_content, $profile)) {
+            return ['status' => 'conflict', 'post_id' => $post_id];
         }
 
         return [
-            'slug'    => $slug,
-            'status'  => self::matches_legacy_content($page->post_content, $profile) ? 'ready' : 'conflict',
-            'post_id' => (int) $page->ID,
+            'status'  => $has_media ? 'ready' : 'missing_image',
+            'post_id' => $post_id,
+        ];
+    }
+
+    /**
+     * Verify that a configured profile completed the one-time migration while
+     * continuing to preserve any later Gutenberg editor changes.
+     *
+     * @return array<string, int|string>
+     */
+    public static function verify_slug(string $slug): array
+    {
+        $profile = self::profile_for_slug($slug);
+        if ($profile === null) {
+            return ['slug' => $slug, 'status' => 'unknown_profile', 'post_id' => 0];
+        }
+
+        $page = get_page_by_path($slug, OBJECT, 'page');
+        if (! $page instanceof \WP_Post) {
+            return ['slug' => $slug, 'status' => 'missing_page', 'post_id' => 0];
+        }
+
+        return ['slug' => $slug] + self::verify_post((int) $page->ID, $profile);
+    }
+
+    /**
+     * @param array<string, mixed> $profile
+     * @return array{status: string, post_id: int}
+     */
+    public static function verify_post(int $post_id, array $profile): array
+    {
+        $page = get_post($post_id);
+        if (! $page instanceof \WP_Post || $page->post_type !== 'page') {
+            return ['status' => 'missing', 'post_id' => $post_id];
+        }
+
+        if ((int) ($profile['imageId'] ?? 0) < 1 || (string) ($profile['imageUrl'] ?? '') === '') {
+            return ['status' => 'missing_image', 'post_id' => $post_id];
+        }
+
+        $versions = get_post_meta($post_id, self::VERSION_META, false);
+        if (count($versions) !== 1 || (string) $versions[0] !== (string) self::VERSION) {
+            return ['status' => 'version_mismatch', 'post_id' => $post_id];
+        }
+
+        $backups = get_post_meta($post_id, self::BACKUP_META, false);
+        if (count($backups) !== 1
+            || ! is_string($backups[0])
+            || ! self::matches_legacy_content($backups[0], $profile)) {
+            return ['status' => 'backup_mismatch', 'post_id' => $post_id];
+        }
+
+        return [
+            'status'  => $page->post_content === self::canonical_content($profile)
+                ? 'verified'
+                : 'managed_modified',
+            'post_id' => $post_id,
         ];
     }
 
@@ -158,6 +306,10 @@ final class Attorney_Profiles
      * [--apply]
      * : Apply the guarded migration. Without this flag the command is read-only.
      *
+     * [--verify]
+     * : Verify portrait ownership, exact backup, version marker, and current
+     *   managed state. Cannot be combined with --apply.
+     *
      * @param array<int, string> $args
      * @param array<string, mixed> $assoc_args
      */
@@ -167,7 +319,25 @@ final class Attorney_Profiles
             ? sanitize_title((string) $assoc_args['slug'])
             : 'james-l-goetz';
         $apply = \WP_CLI\Utils\get_flag_value($assoc_args, 'apply', false);
+        $verify = \WP_CLI\Utils\get_flag_value($assoc_args, 'verify', false);
+        if ($apply && $verify) {
+            \WP_CLI::error('Attorney profile --apply and --verify are mutually exclusive.');
+        }
+
+        if ($verify) {
+            $verification = self::verify_slug($slug);
+            \WP_CLI::line((string) wp_json_encode($verification, JSON_UNESCAPED_SLASHES));
+            if (! in_array($verification['status'] ?? '', ['verified', 'managed_modified'], true)) {
+                \WP_CLI::error(
+                    'Attorney profile verification failed: '
+                        . (string) ($verification['status'] ?? 'unknown')
+                );
+            }
+            return;
+        }
+
         $plan = self::plan_slug($slug);
+        $seeded_media = false;
 
         if (! $apply) {
             \WP_CLI::line((string) wp_json_encode($plan, JSON_UNESCAPED_SLASHES));
@@ -178,11 +348,17 @@ final class Attorney_Profiles
             if (self::ensure_media_for_slug($slug) < 1) {
                 \WP_CLI::error('Attorney profile migration blocked: portrait seed failed');
             }
+            $seeded_media = true;
             $plan = self::plan_slug($slug);
         }
 
         if (($plan['status'] ?? '') === 'noop') {
             \WP_CLI::success("Attorney profile {$slug} is already current.");
+            return;
+        }
+
+        if ($seeded_media && ($plan['status'] ?? '') === 'managed_modified') {
+            \WP_CLI::success("Attorney profile {$slug} portrait is current; managed editor changes were preserved.");
             return;
         }
 
@@ -209,25 +385,95 @@ final class Attorney_Profiles
      */
     public static function ensure_media_for_slug(string $slug): int
     {
-        if ($slug !== 'james-l-goetz') {
+        $definition = self::profile_definition($slug);
+        if ($definition === null) {
             return 0;
         }
 
-        $source = GOETZ_SITE_PATH . 'assets/seed/' . self::JAMES_PORTRAIT_FILENAME;
+        global $wpdb;
+        $lock_name = 'goetz_attorney_media_' . substr(hash('sha256', $definition['seedKey']), 0, 32);
+        $lock_query = $wpdb->prepare('SELECT GET_LOCK(%s, 0)', $lock_name);
+        if (! is_string($lock_query) || (string) $wpdb->get_var($lock_query) !== '1') {
+            return 0;
+        }
+
+        try {
+            return self::ensure_media_for_definition($definition);
+        } finally {
+            $release_query = $wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock_name);
+            if (is_string($release_query)) {
+                $wpdb->get_var($release_query);
+            }
+        }
+    }
+
+    /**
+     * @param array{name: string, bio: string, legacyBio: string, legacyEmail: string, filename: string, seedKey: string, sha256: string, legacyImageUrl: string, imageAlt: string, legacyImageAlt: string} $definition
+     */
+    private static function ensure_media_for_definition(array $definition): int
+    {
+        $source = GOETZ_SITE_PATH . 'assets/seed/' . $definition['filename'];
         if (! is_readable($source)
-            || hash_file('sha256', $source) !== self::JAMES_PORTRAIT_SHA256) {
+            || hash_file('sha256', $source) !== $definition['sha256']) {
             return 0;
         }
 
-        $attachment_id = self::attachment_id_by_seed_key(self::JAMES_PORTRAIT_SEED_KEY);
-        if (self::attachment_matches_seed($attachment_id, self::JAMES_PORTRAIT_SHA256)) {
-            return $attachment_id;
+        $seed_ids = self::attachment_ids_by_seed_key($definition['seedKey']);
+        if (count($seed_ids) > 1) {
+            return 0;
+        }
+        $attachment_id = $seed_ids[0] ?? 0;
+        if ($attachment_id > 0) {
+            if (! self::attachment_has_unique_seed_key($attachment_id, $definition['seedKey'])
+                || ! self::attachment_matches_seed($attachment_id, $definition['sha256'])) {
+                return 0;
+            }
+            return self::ensure_portrait_alt_text($attachment_id, $definition['imageAlt'])
+                ? $attachment_id
+                : 0;
         }
 
-        $attachment_id = self::attachment_id_by_basename(self::JAMES_PORTRAIT_FILENAME);
-        if (self::attachment_matches_seed($attachment_id, self::JAMES_PORTRAIT_SHA256)) {
-            update_post_meta($attachment_id, self::SEED_META, self::JAMES_PORTRAIT_SEED_KEY);
-            self::ensure_portrait_alt_text($attachment_id);
+        $matching_candidates = array_values(array_filter(
+            self::attachment_ids_by_basename($definition['filename']),
+            static fn(int $candidate_id): bool => self::attachment_matches_seed(
+                $candidate_id,
+                $definition['sha256']
+            )
+        ));
+        if (count($matching_candidates) > 1) {
+            return 0;
+        }
+        $attachment_id = $matching_candidates[0] ?? 0;
+        if ($attachment_id > 0) {
+            if (get_post_meta($attachment_id, self::SEED_META, false) !== []
+                || ! self::ensure_portrait_alt_text($attachment_id, $definition['imageAlt'])) {
+                return 0;
+            }
+            $seed_meta_id = add_post_meta(
+                $attachment_id,
+                self::SEED_META,
+                $definition['seedKey'],
+                true
+            );
+            if (! is_int($seed_meta_id)
+                || $seed_meta_id < 1
+                || ! self::metadata_row_matches(
+                    $attachment_id,
+                    $seed_meta_id,
+                    self::SEED_META,
+                    $definition['seedKey']
+                )
+                || ! self::attachment_has_unique_seed_key($attachment_id, $definition['seedKey'])) {
+                if (is_int($seed_meta_id) && $seed_meta_id > 0) {
+                    self::remove_owned_metadata_row(
+                        $attachment_id,
+                        $seed_meta_id,
+                        self::SEED_META,
+                        $definition['seedKey']
+                    );
+                }
+                return 0;
+            }
             return $attachment_id;
         }
 
@@ -236,7 +482,7 @@ final class Attorney_Profiles
             return 0;
         }
 
-        $upload = wp_upload_bits(self::JAMES_PORTRAIT_FILENAME, null, $contents);
+        $upload = wp_upload_bits($definition['filename'], null, $contents);
         if (! empty($upload['error']) || empty($upload['file']) || empty($upload['url'])) {
             return 0;
         }
@@ -246,7 +492,7 @@ final class Attorney_Profiles
         $mime_type = isset($file_type['type']) && is_string($file_type['type'])
             ? $file_type['type']
             : '';
-        if ($mime_type !== 'image/jpeg' || ! self::file_matches_hash($file, self::JAMES_PORTRAIT_SHA256)) {
+        if ($mime_type !== 'image/jpeg' || ! self::file_matches_hash($file, $definition['sha256'])) {
             wp_delete_file($file);
             return 0;
         }
@@ -254,7 +500,7 @@ final class Attorney_Profiles
         $inserted = wp_insert_attachment(
             [
                 'post_mime_type' => $mime_type,
-                'post_title'     => 'James L. Goetz portrait',
+                'post_title'     => $definition['imageAlt'],
                 'post_content'   => '',
                 'post_status'    => 'inherit',
             ],
@@ -270,12 +516,30 @@ final class Attorney_Profiles
         $attachment_id = (int) $inserted;
         require_once ABSPATH . 'wp-admin/includes/image.php';
         $metadata = wp_generate_attachment_metadata($attachment_id, $file);
-        if (is_array($metadata)) {
-            wp_update_attachment_metadata($attachment_id, $metadata);
+        if (! is_array($metadata)
+            || wp_update_attachment_metadata($attachment_id, $metadata) === false
+            || ! is_array(wp_get_attachment_metadata($attachment_id))) {
+            wp_delete_attachment($attachment_id, true);
+            return 0;
         }
 
-        update_post_meta($attachment_id, self::SEED_META, self::JAMES_PORTRAIT_SEED_KEY);
-        self::ensure_portrait_alt_text($attachment_id);
+        $alt_verified = self::ensure_portrait_alt_text($attachment_id, $definition['imageAlt']);
+        $seed_meta_id = add_post_meta($attachment_id, self::SEED_META, $definition['seedKey'], true);
+        $identity_verified = $alt_verified
+            && is_int($seed_meta_id)
+            && $seed_meta_id > 0
+            && self::metadata_row_matches(
+                $attachment_id,
+                $seed_meta_id,
+                self::SEED_META,
+                $definition['seedKey']
+            )
+            && self::attachment_has_unique_seed_key($attachment_id, $definition['seedKey'])
+            && self::attachment_matches_seed($attachment_id, $definition['sha256']);
+        if (! $identity_verified) {
+            wp_delete_attachment($attachment_id, true);
+            return 0;
+        }
 
         return valid_image_attachment_id($attachment_id);
     }
@@ -302,18 +566,33 @@ final class Attorney_Profiles
         $initial_content = $initial_fingerprint['post_content'];
         $desired_content = self::canonical_content($profile);
         if ($initial_content === $desired_content) {
-            return ['status' => 'noop', 'post_id' => $post_id];
+            $verification = self::verify_post($post_id, $profile);
+            return ($verification['status'] ?? '') === 'verified'
+                ? ['status' => 'noop', 'post_id' => $post_id]
+                : self::error_result(
+                    $post_id,
+                    'Canonical attorney content is missing its exact migration evidence.'
+                );
         }
 
-        if ((int) get_post_meta($post_id, self::VERSION_META, true) >= self::VERSION) {
-            return ['status' => 'managed_modified', 'post_id' => $post_id];
+        $version_before = get_post_meta($post_id, self::VERSION_META, false);
+        if ($version_before !== []) {
+            if (count($version_before) === 1
+                && (string) $version_before[0] === (string) self::VERSION
+                && (self::verify_post($post_id, $profile)['status'] ?? '') === 'managed_modified') {
+                return ['status' => 'managed_modified', 'post_id' => $post_id];
+            }
+
+            return self::error_result(
+                $post_id,
+                'Attorney profile migration blocked by unexpected or incomplete migration evidence.'
+            );
         }
 
         if (! self::matches_legacy_content($initial_content, $profile)) {
             return ['status' => 'conflict', 'post_id' => $post_id];
         }
 
-        $version_before = get_post_meta($post_id, self::VERSION_META, false);
         $backup_meta_id = 0;
         $backup_values = get_post_meta($post_id, self::BACKUP_META, false);
         if ($backup_values === []) {
@@ -718,10 +997,49 @@ final class Attorney_Profiles
     }
 
     /**
+     * Return the one repository-reviewed legacy serialization that may be
+     * replaced. Exact bytes matter: whitespace or freeform additions are
+     * treated as editor changes and must survive.
+     *
+     * @param array<string, mixed> $profile
+     */
+    private static function legacy_content(array $profile): string
+    {
+        $scalar = static fn(string $key): string => isset($profile[$key]) && is_scalar($profile[$key])
+            ? (string) $profile[$key]
+            : '';
+        $legacy_email = $scalar('legacyEmail') !== '' ? $scalar('legacyEmail') : $scalar('email');
+        $legacy_bio = $scalar('legacyBio') !== '' ? $scalar('legacyBio') : $scalar('bio');
+        $legacy_email_label = $scalar('legacyEmailLabel') !== ''
+            ? $scalar('legacyEmailLabel')
+            : 'Email ' . $scalar('name');
+        $attributes = [
+            'name'     => $scalar('name'),
+            'email'    => $legacy_email,
+            'imageUrl' => $scalar('legacyImageUrl'),
+            'imageAlt' => $scalar('legacyImageAlt'),
+        ];
+
+        return '<!-- wp:group {"className":"goetz-section","layout":{"type":"constrained"}} -->'
+            . '<div class="wp-block-group goetz-section">'
+            . '<!-- wp:goetz/attorney-card '
+            . (string) wp_json_encode($attributes, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+            . ' /-->'
+            . '<!-- wp:paragraph --><p>' . esc_html($legacy_bio) . '</p><!-- /wp:paragraph -->'
+            . '<!-- wp:paragraph --><p>' . esc_html($legacy_email_label) . '</p><!-- /wp:paragraph -->'
+            . '</div><!-- /wp:group -->'
+            . '<!-- wp:goetz/cta /-->';
+    }
+
+    /**
      * @param array<string, mixed> $profile
      */
     private static function matches_legacy_content(string $content, array $profile): bool
     {
+        if (! hash_equals(self::legacy_content($profile), $content)) {
+            return false;
+        }
+
         $blocks = array_values(array_filter(
             parse_blocks($content),
             static fn(array $block): bool => $block['blockName'] !== null
@@ -810,27 +1128,36 @@ final class Attorney_Profiles
         return $html === '<p>' . esc_html($expected_text) . '</p>';
     }
 
-    private static function attachment_id_by_basename(string $basename): int
+    /**
+     * @return array<int, int>
+     */
+    private static function attachment_ids_by_basename(string $basename): array
     {
         global $wpdb;
 
-        $attachment_id = (int) $wpdb->get_var(
+        $attachment_ids = $wpdb->get_col(
             $wpdb->prepare(
-                "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_wp_attached_file' AND (meta_value = %s OR meta_value LIKE %s) ORDER BY post_id DESC LIMIT 1",
+                "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_wp_attached_file' AND (meta_value = %s OR meta_value LIKE %s) ORDER BY post_id DESC",
                 $basename,
                 '%/' . $wpdb->esc_like($basename)
             )
         );
 
-        return valid_image_attachment_id($attachment_id);
+        return array_values(array_filter(array_map(
+            static fn($attachment_id): int => valid_image_attachment_id($attachment_id),
+            is_array($attachment_ids) ? $attachment_ids : []
+        )));
     }
 
-    private static function attachment_id_by_seed_key(string $seed_key): int
+    /**
+     * @return array<int, int>
+     */
+    private static function attachment_ids_by_seed_key(string $seed_key): array
     {
         $ids = get_posts([
             'post_type'              => 'attachment',
             'post_status'            => 'inherit',
-            'posts_per_page'         => 1,
+            'posts_per_page'         => -1,
             'fields'                 => 'ids',
             'meta_key'               => self::SEED_META,
             'meta_value'             => $seed_key,
@@ -842,7 +1169,15 @@ final class Attorney_Profiles
             'update_post_term_cache' => false,
         ]);
 
-        return valid_image_attachment_id($ids[0] ?? 0);
+        return array_values(array_filter(array_map(
+            static fn($attachment_id): int => valid_image_attachment_id($attachment_id),
+            is_array($ids) ? $ids : []
+        )));
+    }
+
+    private static function attachment_has_unique_seed_key(int $attachment_id, string $seed_key): bool
+    {
+        return get_post_meta($attachment_id, self::SEED_META, false) === [$seed_key];
     }
 
     private static function localized_source_media_url(string $source_url): string
@@ -888,10 +1223,12 @@ final class Attorney_Profiles
         return is_readable($file) && hash_file('sha256', $file) === $expected_hash;
     }
 
-    private static function ensure_portrait_alt_text(int $attachment_id): void
+    private static function ensure_portrait_alt_text(int $attachment_id, string $alt_text): bool
     {
         if ((string) get_post_meta($attachment_id, '_wp_attachment_image_alt', true) === '') {
-            update_post_meta($attachment_id, '_wp_attachment_image_alt', 'James L. Goetz portrait');
+            update_post_meta($attachment_id, '_wp_attachment_image_alt', $alt_text);
         }
+
+        return (string) get_post_meta($attachment_id, '_wp_attachment_image_alt', true) !== '';
     }
 }

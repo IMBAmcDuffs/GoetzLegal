@@ -683,8 +683,13 @@ try {
     $duplicate_images = array_values(array_filter(
         $initial_attachment_ids,
         static fn(int $id): bool => wp_attachment_is_image($id)
+            && ($initial_attachment_seed_meta[$id] ?? []) === []
+            && ($initial_attachment_checksum_meta[$id] ?? []) === []
     ));
-    goetz_homepage_migration_assert(count($duplicate_images) >= 2, 'Duplicate seed-key coverage requires two image attachments.');
+    goetz_homepage_migration_assert(
+        count($duplicate_images) >= 2,
+        'Duplicate seed-key coverage requires two unmanaged image attachments.'
+    );
     $hero_seed_key = (string) $config['assets']['hero_exterior']['seed_key'];
     $touched_existing_attachment_ids[] = $duplicate_images[0];
     $touched_existing_attachment_ids[] = $duplicate_images[1];

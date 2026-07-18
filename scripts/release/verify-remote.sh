@@ -81,6 +81,15 @@ verify_runtime_root() {
     <(cd "$actual" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum) ||
     die "managed runtime hashes differ from the release: $relative"
 }
+validate_json_status() {
+  local document="$1" allowed="$2"
+  printf '%s' "$document" | php -r '
+    $allowed = explode(",", $argv[1]);
+    $raw = stream_get_contents(STDIN);
+    $data = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
+    if (!is_array($data) || array_is_list($data) || !isset($data["status"]) || !is_string($data["status"]) || !in_array($data["status"], $allowed, true)) { exit(1); }
+  ' "$allowed"
+}
 smoke_exact_route() {
   local route="$1" effective
   effective="$(curl --fail --silent --show-error --location --max-redirs 3 \
@@ -123,7 +132,7 @@ verify_debug_checkpoint() {
 [[ "$release" == "/www/goetzgoetz_755/private/releases/$release_sha" ]]
 [[ "$release_sha" =~ ^[0-9a-f]{40}$ && "$release_digest" =~ ^[0-9a-f]{64}$ ]]
 case "$origin" in 'https://goetzgoetz.kinsta.cloud'|'https://goetzlegal.com') ;; *) die 'origin is not approved' ;; esac
-for command_name in wp sha256sum readlink flock find grep awk sort stat head tail curl cmp xargs; do
+for command_name in wp php sha256sum readlink flock find grep awk sort stat head tail curl cmp xargs; do
   command -v "$command_name" >/dev/null 2>&1 || die "required command unavailable: $command_name"
 done
 assert_dir "$site" '/www/goetzgoetz_755/public'
@@ -182,6 +191,10 @@ test -s "$site/wp-content/themes/goetz-legal/dist/.vite/manifest.json"
 test -s "$site/wp-content/themes/goetz-legal/vendor/autoload.php"
 test -s "$site/wp-content/plugins/goetz-site/build/index.js"
 test -s "$site/wp-content/plugins/goetz-site/build/index.asset.php"
+for attorney_slug in james-l-goetz gregory-w-goetz; do
+  attorney_verification="$(wp --path="$site" goetz-site attorney-profile --slug="$attorney_slug" --verify)"
+  validate_json_status "$attorney_verification" 'verified,managed_modified'
+done
 scan_public_dumps
 
 debug_file="$site/wp-content/debug.log"

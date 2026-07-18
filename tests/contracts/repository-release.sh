@@ -1558,6 +1558,8 @@ grep -Fq -- '-e GOETZ_ALLOW_MUTATING_TESTS=1' <<< "$integration_runner_body" ||
   fail 'test:integration must opt in to guarded mutations only for its eval-file subprocesses'
 grep -Fq -- '-e WP_ENVIRONMENT_TYPE=local' <<< "$integration_runner_body" ||
   fail 'test:integration must force an explicit local WordPress environment for mutating fixtures'
+grep -Fq -- '</dev/null' <<< "$integration_runner_body" ||
+  fail 'test:integration must isolate each WP-CLI process from the integration-script file list'
 generic_wp_body="$(awk '/^wp\(\)/,/^}/ { print }' manager.sh)"
 ! grep -Fq 'GOETZ_ALLOW_MUTATING_TESTS' <<< "$generic_wp_body" ||
   fail 'generic wp passthrough must never opt in to mutating integration tests'

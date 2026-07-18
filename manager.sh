@@ -361,7 +361,7 @@ test_integration() {
       -e GOETZ_ALLOW_MUTATING_TESTS=1 \
       -e WP_ENVIRONMENT_TYPE=local \
       wpcli wp \
-      --path="${WP_PATH}" --allow-root eval-file "/var/www/html/${script}"
+      --path="${WP_PATH}" --allow-root eval-file "/var/www/html/${script}" </dev/null
   done < <(find \
     wp-content/plugins/goetz-site/tests/php \
     wp-content/plugins/goetz-migration/tests \

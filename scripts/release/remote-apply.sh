@@ -13,6 +13,8 @@ release_dir=''
 backup_id=''
 release_seen=0
 backup_seen=0
+write_freeze_confirmed=0
+write_freeze_seen=0
 for argument in "$@"; do
   case "$argument" in
     --release-dir=*)
@@ -25,6 +27,11 @@ for argument in "$@"; do
       backup_id="${argument#*=}"
       backup_seen=1
       ;;
+    --write-freeze-confirmed)
+      (( write_freeze_seen == 0 )) || goetz_fail '--write-freeze-confirmed was supplied more than once'
+      write_freeze_confirmed=1
+      write_freeze_seen=1
+      ;;
     --*) goetz_fail "unknown argument: $argument" ;;
     *)
       (( release_seen == 0 )) || goetz_fail 'release directory was supplied more than once'
@@ -33,8 +40,8 @@ for argument in "$@"; do
       ;;
   esac
 done
-[[ -n "$release_dir" && -n "$backup_id" ]] ||
-  goetz_fail 'usage: remote-apply.sh --release-dir=<release> --backup-id=<verified-pre-deployment-backup>'
+[[ -n "$release_dir" && -n "$backup_id" && "$write_freeze_confirmed" == 1 ]] ||
+  goetz_fail 'usage: remote-apply.sh --release-dir=<release> --backup-id=<verified-pre-deployment-backup> --write-freeze-confirmed'
 goetz_validate_backup_id "$backup_id"
 [[ -d "$release_dir" && ! -L "$release_dir" ]] || goetz_fail 'release directory must be a normal directory'
 goetz_release_identity "$release_dir"
@@ -154,6 +161,7 @@ site='/www/goetzgoetz_755/public'
 private='/www/goetzgoetz_755/private'
 staging='https://goetzgoetz.kinsta.cloud'
 mutation_started=0
+database_mutation_started=0
 restore_work=''
 preflight_file=''
 debug_offset=0
@@ -253,11 +261,14 @@ restore_release_state() {
     *) return 94 ;;
   esac
 }
-restore_packet() {
+restore_code_packet() {
   local relative state archive target
   while IFS=$'\t' read -r relative state archive target; do
     restore_code_root "$relative" "$state" "$archive" "$target" || return
   done < "$preflight_file"
+}
+restore_packet() {
+  restore_code_packet || return
   mkdir -p "$site/wp-content/uploads" || return
   assert_physical_dir "$site/wp-content/uploads" '/www/goetzgoetz_755/public/wp-content/uploads' || return
   rsync --archive --delete-delay --checksum "$restore_work/uploads-packet/wp-content/uploads/" "$site/wp-content/uploads/" || return
@@ -294,10 +305,17 @@ handle_apply_failure() {
   (( status != 0 )) || status=1
   write_phase "$failure_phase"
   if (( mutation_started == 1 )); then
-    if restore_packet; then
-      write_phase auto_rollback_succeeded
+    if (( database_mutation_started == 1 )); then
+      if restore_packet; then
+        write_phase auto_rollback_succeeded
+      else
+        write_phase auto_rollback_failed_manual_intervention_required
+        status=97
+      fi
+    elif restore_code_packet; then
+      write_phase auto_code_rollback_succeeded
     else
-      write_phase auto_rollback_failed_manual_intervention_required
+      write_phase auto_code_rollback_failed_manual_intervention_required
       status=97
     fi
   fi
@@ -320,6 +338,17 @@ validate_json_status() {
     $data = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
     if (!is_array($data) || array_is_list($data) || !isset($data["status"]) || !is_string($data["status"]) || !in_array($data["status"], $allowed, true)) { exit(1); }
   ' "$allowed"
+}
+json_status() {
+  local document="$1" allowed="$2"
+  printf '%s' "$document" | php -r '
+    if (($argv[2] ?? "") !== "emit") { exit(1); }
+    $allowed = explode(",", $argv[1]);
+    $raw = stream_get_contents(STDIN);
+    $data = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
+    if (!is_array($data) || array_is_list($data) || !isset($data["status"]) || !is_string($data["status"]) || !in_array($data["status"], $allowed, true)) { exit(1); }
+    echo $data["status"];
+  ' "$allowed" emit
 }
 scan_public_dumps() {
   ! find "$site" -xdev -type f \( -name '*.sql' -o -name '*.sql.gz' -o -name '*.dump' -o -name '*.bak' \
@@ -436,6 +465,7 @@ mapfile -t metadata < "$backup/BACKUP-METADATA"
 require_single_site
 [[ "$(wp --path="$site" option get home)" == "$staging" ]]
 [[ "$(wp --path="$site" option get siteurl)" == "$staging" ]]
+wp --path="$site" plugin is-active goetz-site
 scan_public_dumps
 
 preflight_file="$private/operations/.deploy-$release_sha-$backup_id.preflight.$$"
@@ -498,28 +528,83 @@ sync_release_root() {
   rsync --archive --delete-delay --checksum "$source/" "$target/"
 }
 
+preflight_attorney_profile() {
+  local slug="$1" plan plan_status
+
+  plan="$(wp --path="$site" goetz-site attorney-profile --slug="$slug")"
+  plan_status="$(json_status "$plan" 'ready,noop,managed_modified,missing_image,conflict,migration_evidence_mismatch,version_conflict,unknown_profile,missing_page')"
+  case "$plan_status" in
+    ready|noop|managed_modified|missing_image) ;;
+    conflict|migration_evidence_mismatch|version_conflict|unknown_profile|missing_page)
+      die "attorney profile preflight blocked by $plan_status: $slug"
+      ;;
+    *) die "attorney profile preflight returned an invalid state: $slug" ;;
+  esac
+}
+
+migrate_attorney_profile() {
+  local slug="$1" plan plan_status post_plan post_status verification verification_status
+
+  plan="$(wp --path="$site" goetz-site attorney-profile --slug="$slug")"
+  plan_status="$(json_status "$plan" 'ready,noop,managed_modified,missing_image,conflict,migration_evidence_mismatch,version_conflict,unknown_profile,missing_page')"
+  case "$plan_status" in
+    ready|missing_image)
+      database_mutation_started=1
+      wp --path="$site" goetz-site attorney-profile --slug="$slug" --apply
+      ;;
+    noop|managed_modified) ;;
+    conflict|migration_evidence_mismatch|version_conflict|unknown_profile|missing_page)
+      die "attorney profile migration blocked by $plan_status: $slug"
+      ;;
+    *) die "attorney profile preview returned an invalid state: $slug" ;;
+  esac
+
+  post_plan="$(wp --path="$site" goetz-site attorney-profile --slug="$slug")"
+  post_status="$(json_status "$post_plan" 'noop,managed_modified')"
+
+  verification="$(wp --path="$site" goetz-site attorney-profile --slug="$slug" --verify)"
+  verification_status="$(json_status "$verification" 'verified,managed_modified')"
+  case "$post_status:$verification_status" in
+    noop:verified|managed_modified:managed_modified) ;;
+    *) die "attorney profile verification disagrees with its migration state: $slug" ;;
+  esac
+}
+
 sync_release_root "$release/payload/wp-content/plugins/goetz-site" "$site/wp-content/plugins/goetz-site"
-wp --path="$site" plugin activate goetz-site
+[[ "$(wp --path="$site" plugin get goetz-site --field=version)" == '1.0.0' ]]
+
+write_phase attorney_preflight
+for attorney_slug in james-l-goetz gregory-w-goetz; do
+  preflight_attorney_profile "$attorney_slug"
+done
+
+write_phase migrating_attorney_profiles
+for attorney_slug in james-l-goetz gregory-w-goetz; do
+  migrate_attorney_profile "$attorney_slug"
+done
+
+write_phase syncing_remaining_code
 sync_release_root "$release/payload/wp-content/themes/goetz-legal" "$site/wp-content/themes/goetz-legal"
 sync_release_root "$release/payload/wp-content/plugins/goetz-migration" "$site/wp-content/plugins/goetz-migration"
 sync_release_root "$release/payload/wp-content/plugins/wordpress-seo" "$site/wp-content/plugins/wordpress-seo"
 sync_release_root "$release/payload/wp-content/plugins/wpforms-lite" "$site/wp-content/plugins/wpforms-lite"
 
 write_phase activating
-[[ "$(wp --path="$site" plugin get goetz-site --field=version)" == '1.0.0' ]]
 [[ "$(wp --path="$site" plugin get goetz-migration --field=version)" == '1.1.0' ]]
 [[ "$(wp --path="$site" plugin get wordpress-seo --field=version)" == '28.0' ]]
 [[ "$(wp --path="$site" plugin get wpforms-lite --field=version)" == '1.10.0.4' ]]
+database_mutation_started=1
 wp --path="$site" theme activate goetz-legal
 wp --path="$site" plugin activate goetz-site goetz-migration wordpress-seo wpforms-lite
 
-write_phase migrating
+write_phase migrating_homepage
 homepage_plan="$(wp --path="$site" goetz-site migrate homepage --dry-run --format=json)"
 validate_json_status "$homepage_plan" 'ready,noop'
 homepage_apply="$(wp --path="$site" goetz-site migrate homepage --apply --format=json)"
 validate_json_status "$homepage_apply" 'updated,noop'
 homepage_noop="$(wp --path="$site" goetz-site migrate homepage --apply --format=json)"
 validate_json_status "$homepage_noop" 'noop'
+
 seo_first="$(wp --path="$site" goetz-site seo configure --strict --format=json)"
 validate_json_status "$seo_first" 'configured,noop'
 seo_noop="$(wp --path="$site" goetz-site seo configure --strict --format=json)"
