@@ -1,6 +1,6 @@
 <?php
 /**
- * REST-first importer for the Goetz Legal rebuild.
+ * REST-first, create-only legacy importer for the Goetz Legal rebuild.
  *
  * @package GoetzMigration
  */
@@ -26,13 +26,23 @@ class Goetz_Migration_Scraper
         '/contact/'          => ['slug' => 'contact', 'title' => 'Contact', 'rest_slug' => 'contact'],
     ];
 
+    private string $fetch_proxy_url;
+
+    /** @var array<int, int> */
+    private array $owned_attachment_journal = [];
+
+    public function __construct(string $fetch_proxy_url = '')
+    {
+        $this->fetch_proxy_url = esc_url_raw($fetch_proxy_url);
+    }
+
     /**
      * Discover and fetch source pages without writing posts.
      *
      * @param string $source_url Source site URL.
      * @return array<int, array<string, mixed>>
      */
-    public function scan_site(string $source_url = 'https://goetzlegal.com'): array
+    public function discover_site(string $source_url = 'https://goetzlegal.com'): array
     {
         $source_url = untrailingslashit($source_url);
         $sitemap_paths = $this->discover_sitemap_paths($source_url);
@@ -72,82 +82,322 @@ class Goetz_Migration_Scraper
             $pages[] = $page;
         }
 
-        update_option('goetz_migration_scan_data', $pages, false);
-
         return $pages;
     }
 
     /**
-     * Import source pages into WordPress as normal pages.
+     * Backward-compatible read-only discovery alias.
      *
      * @param string $source_url Source site URL.
-     * @return array{created: int, updated: int, skipped: int}
+     * @return array<int, array<string, mixed>>
      */
-    public function import_site(string $source_url = 'https://goetzlegal.com'): array
+    public function scan_site(string $source_url = 'https://goetzlegal.com'): array
     {
-        $pages = $this->scan_site($source_url);
-        $summary = ['created' => 0, 'updated' => 0, 'skipped' => 0];
-        $imported_ids = [];
+        return $this->discover_site($source_url);
+    }
+
+    /**
+     * Discover and plan an import without changing persistent state.
+     *
+     * @return array<string, mixed>
+     */
+    public function plan_site(string $source_url = 'https://goetzlegal.com', bool $force_existing = false): array
+    {
+        return $this->plan_pages($this->discover_site($source_url), $force_existing);
+    }
+
+    /**
+     * Build a deterministic, separately reviewable import plan.
+     *
+     * Existing pages are rejected before content, media, or form preparation
+     * unless the caller explicitly selected force mode.
+     *
+     * @param array<int, array<string, mixed>> $pages
+     * @return array<string, mixed>
+     */
+    public function plan_pages(array $pages, bool $force_existing = false): array
+    {
+        $items = [];
+        $summary = [
+            'planned_create'   => 0,
+            'planned_update'   => 0,
+            'skipped_existing' => 0,
+        ];
 
         foreach ($pages as $page) {
-            $existing_id = $this->find_existing_page((string) $page['slug'], (string) $page['url']);
-            $same_hash = $existing_id && get_post_meta($existing_id, '_goetz_source_hash', true) === $page['source_hash'];
-            $same_content_version = $existing_id && get_post_meta($existing_id, '_goetz_content_version', true) === GOETZ_MIGRATION_CONTENT_VERSION;
-            $existing_content = $existing_id ? (string) get_post_field('post_content', $existing_id) : '';
-            $has_remote_media = $existing_id && strpos($existing_content, 'goetzlegal.com/wp-content/uploads') !== false;
-            $needs_form_refresh = $existing_id
-                && ($page['slug'] ?? '') === 'contact'
-                && post_type_exists('wpforms')
-                && (strpos($existing_content, '[wpforms id="1"') !== false || $this->contact_form_needs_refresh());
-
-            if ($same_hash && $same_content_version && !$has_remote_media && !$needs_form_refresh) {
-                $summary['skipped']++;
-                $imported_ids[(string) $page['slug']] = $existing_id;
+            if (! is_array($page)) {
                 continue;
             }
 
-            $postarr = [
-                'post_title'     => (string) $page['title'],
-                'post_name'      => (string) $page['slug'],
-                'post_type'      => 'page',
-                'post_status'    => 'publish',
-                'comment_status' => 'closed',
-                'ping_status'    => 'closed',
+            $slug = sanitize_title((string) ($page['slug'] ?? ''));
+            $source_url = esc_url_raw((string) ($page['url'] ?? ''));
+            if ($slug === '' || $source_url === '') {
+                continue;
+            }
+
+            $existing_id = $this->find_existing_page($slug, $source_url);
+            $base_item = [
+                'slug'         => $slug,
+                'title'        => sanitize_text_field((string) ($page['title'] ?? $slug)),
+                'source_url'   => $source_url,
+                'source_hash'  => sanitize_text_field((string) ($page['source_hash'] ?? '')),
+                'existing_id'  => $existing_id,
             ];
 
-            if ($existing_id) {
-                $postarr['ID'] = $existing_id;
-                $post_id = wp_update_post($postarr, true);
-                $summary['updated']++;
-            } else {
-                $post_id = wp_insert_post($postarr, true);
-                $summary['created']++;
-            }
-
-            if (is_wp_error($post_id)) {
+            if ($existing_id && ! $force_existing) {
+                $items[] = $this->seal_plan_item($base_item + [
+                    'status' => 'skipped_existing',
+                    'diff'   => '',
+                ]);
+                $summary['skipped_existing']++;
                 continue;
             }
 
-            $content = $this->build_page_content((string) $page['slug'], $page, (int) $post_id);
-            $content = $this->localize_remote_media($content, (int) $post_id);
-
-            wp_update_post([
-                'ID'           => (int) $post_id,
-                'post_content' => $content,
+            $existing_content = $existing_id ? (string) get_post_field('post_content', $existing_id) : '';
+            $content = $this->build_page_content($slug, $page, $existing_id);
+            $status = $existing_id ? 'update_existing' : 'create';
+            $items[] = $this->seal_plan_item($base_item + [
+                'status'                   => $status,
+                'content'                  => $content,
+                'content_hash_before'      => hash('sha256', $existing_content),
+                'content_hash_after'       => hash('sha256', $content),
+                'state_fingerprint_before' => $existing_id ? $this->existing_state_fingerprint($existing_id) : '',
+                'diff'                     => $this->normalized_block_diff($existing_content, $content, $slug),
             ]);
 
-            update_post_meta((int) $post_id, '_goetz_source_url', esc_url_raw((string) $page['url']));
-            update_post_meta((int) $post_id, '_goetz_source_hash', (string) $page['source_hash']);
-            update_post_meta((int) $post_id, '_goetz_content_version', GOETZ_MIGRATION_CONTENT_VERSION);
-            update_post_meta((int) $post_id, '_goetz_imported_at', current_time('mysql'));
-            $this->import_yoast_meta((int) $post_id, $page);
-
-            $imported_ids[(string) $page['slug']] = (int) $post_id;
+            if ($existing_id) {
+                $summary['planned_update']++;
+            } else {
+                $summary['planned_create']++;
+            }
         }
 
-        $this->configure_site($imported_ids);
+        return [
+            'force_existing' => $force_existing,
+            'summary'        => $summary,
+            'items'          => $items,
+        ];
+    }
 
-        return $summary;
+    /**
+     * Apply a previously reviewed plan.
+     *
+     * Create actions are rechecked to avoid races. Forced updates are bound to
+     * the exact pre-apply state and content hashes that appeared in the
+     * reviewed diff.
+     *
+     * @param array<string, mixed> $plan
+     * @return array<string, mixed>
+     */
+    public function apply_plan(array $plan): array
+    {
+        $summary = ['created' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => 0];
+        $results = [];
+
+        foreach ($plan['items'] ?? [] as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            if (! $this->review_fingerprint_is_valid($item)) {
+                $summary['errors']++;
+                $results[] = [
+                    'slug'   => sanitize_title($this->fingerprint_value($item['slug'] ?? '')),
+                    'status' => 'invalid_plan',
+                ];
+                continue;
+            }
+
+            $slug = sanitize_title((string) ($item['slug'] ?? ''));
+            $source_url = esc_url_raw((string) ($item['source_url'] ?? ''));
+            $status = (string) ($item['status'] ?? '');
+
+            if ($status === 'skipped_existing') {
+                $summary['skipped']++;
+                $results[] = ['slug' => $slug, 'status' => 'skipped_existing'];
+                continue;
+            }
+
+            if ($slug === '' || $source_url === '' || ! isset($item['content']) || ! is_string($item['content'])) {
+                $summary['errors']++;
+                $results[] = ['slug' => $slug, 'status' => 'invalid_plan'];
+                continue;
+            }
+
+            $content = $item['content'];
+            $reviewed_content_hash = (string) ($item['content_hash_after'] ?? '');
+            if (
+                $reviewed_content_hash === ''
+                || ! hash_equals($reviewed_content_hash, hash('sha256', $content))
+            ) {
+                $summary['errors']++;
+                $results[] = ['slug' => $slug, 'status' => 'invalid_plan'];
+                continue;
+            }
+
+            $current_id = $this->find_existing_page($slug, $source_url);
+
+            if ($status === 'create') {
+                if ($current_id) {
+                    $summary['skipped']++;
+                    $results[] = ['slug' => $slug, 'status' => 'skipped_existing'];
+                    continue;
+                }
+
+                $post_id = wp_insert_post([
+                    'post_title'     => sanitize_text_field((string) ($item['title'] ?? $slug)),
+                    'post_name'      => $slug,
+                    'post_type'      => 'page',
+                    'post_status'    => 'publish',
+                    'post_content'   => $content,
+                    'comment_status' => 'closed',
+                    'ping_status'    => 'closed',
+                ], true);
+
+                if (is_wp_error($post_id)) {
+                    $summary['errors']++;
+                    $results[] = [
+                        'slug'    => $slug,
+                        'status'  => 'error',
+                        'message' => $post_id->get_error_message(),
+                    ];
+                    continue;
+                }
+
+                $post_id = (int) $post_id;
+                $this->begin_owned_media_journal();
+                try {
+                    $localized = $this->localize_remote_media($content, $post_id);
+                    $owned_attachment_ids = $this->release_owned_media_journal();
+                } catch (Throwable $exception) {
+                    $owned_attachment_ids = $this->release_owned_media_journal();
+                    $this->rollback_created_page($post_id, $owned_attachment_ids);
+                    $summary['errors']++;
+                    $results[] = [
+                        'slug'    => $slug,
+                        'status'  => 'error',
+                        'message' => 'Media localization failed.',
+                    ];
+                    continue;
+                }
+
+                if ($localized !== $content) {
+                    $updated = $this->update_page_content($post_id, $localized);
+                    if (is_wp_error($updated)) {
+                        $this->rollback_created_page($post_id, $owned_attachment_ids);
+                        $summary['errors']++;
+                        $results[] = [
+                            'slug'    => $slug,
+                            'status'  => 'error',
+                            'message' => $updated->get_error_message(),
+                        ];
+                        continue;
+                    }
+                }
+
+                $this->record_import_meta($post_id, $item);
+                $summary['created']++;
+                $results[] = ['slug' => $slug, 'status' => 'created', 'post_id' => $post_id];
+                continue;
+            }
+
+            if ($status !== 'update_existing' || ($plan['force_existing'] ?? false) !== true) {
+                $summary['errors']++;
+                $results[] = ['slug' => $slug, 'status' => 'force_not_authorized'];
+                continue;
+            }
+
+            $expected_id = absint($item['existing_id'] ?? 0);
+            if (! $current_id || $current_id !== $expected_id) {
+                $summary['errors']++;
+                $results[] = ['slug' => $slug, 'status' => 'conflict'];
+                continue;
+            }
+
+            $current_content = (string) get_post_field('post_content', $current_id);
+            if (! hash_equals((string) ($item['content_hash_before'] ?? ''), hash('sha256', $current_content))) {
+                $summary['errors']++;
+                $results[] = ['slug' => $slug, 'status' => 'conflict'];
+                continue;
+            }
+            if (! hash_equals(
+                (string) ($item['state_fingerprint_before'] ?? ''),
+                $this->existing_state_fingerprint($current_id)
+            )) {
+                $summary['errors']++;
+                $results[] = ['slug' => $slug, 'status' => 'conflict'];
+                continue;
+            }
+
+            $this->begin_owned_media_journal();
+            try {
+                $localized = $this->localize_remote_media($content, $current_id);
+                $owned_attachment_ids = $this->release_owned_media_journal();
+            } catch (Throwable $exception) {
+                $owned_attachment_ids = $this->release_owned_media_journal();
+                $this->rollback_owned_media($owned_attachment_ids);
+                $summary['errors']++;
+                $results[] = [
+                    'slug'    => $slug,
+                    'status'  => 'error',
+                    'message' => 'Media localization failed.',
+                ];
+                continue;
+            }
+
+            $current_content = (string) get_post_field('post_content', $current_id);
+            if (
+                ! hash_equals(
+                    (string) ($item['content_hash_before'] ?? ''),
+                    hash('sha256', $current_content)
+                )
+                || ! hash_equals(
+                    (string) ($item['state_fingerprint_before'] ?? ''),
+                    $this->existing_state_fingerprint($current_id)
+                )
+            ) {
+                $this->rollback_owned_media($owned_attachment_ids);
+                $summary['errors']++;
+                $results[] = ['slug' => $slug, 'status' => 'conflict'];
+                continue;
+            }
+
+            $updated = $this->update_page_content($current_id, $localized);
+            if (is_wp_error($updated)) {
+                $this->rollback_owned_media($owned_attachment_ids);
+                $summary['errors']++;
+                $results[] = [
+                    'slug'    => $slug,
+                    'status'  => 'error',
+                    'message' => $updated->get_error_message(),
+                ];
+                continue;
+            }
+
+            $summary['updated']++;
+            $results[] = ['slug' => $slug, 'status' => 'updated', 'post_id' => $current_id];
+        }
+
+        return ['summary' => $summary, 'items' => $results];
+    }
+
+    /**
+     * Import source pages using a read-only plan followed by an explicit apply.
+     *
+     * @return array<string, mixed>
+     */
+    public function import_site(
+        string $source_url = 'https://goetzlegal.com',
+        bool $force_existing = false,
+        bool $dry_run = false
+    ): array {
+        $plan = $this->plan_site($source_url, $force_existing);
+
+        if ($dry_run) {
+            return $plan;
+        }
+
+        return $this->apply_plan($plan);
     }
 
     /**
@@ -158,7 +408,7 @@ class Goetz_Migration_Scraper
      */
     public function scrape_site(string $base_url): array
     {
-        return $this->scan_site($base_url);
+        return $this->discover_site($base_url);
     }
 
     /**
@@ -166,8 +416,10 @@ class Goetz_Migration_Scraper
      */
     public function generate_posts(): int
     {
-        $summary = $this->import_site('https://goetzlegal.com');
-        return $summary['created'] + $summary['updated'];
+        $result = $this->import_site('https://goetzlegal.com');
+        $summary = $result['summary'] ?? [];
+
+        return (int) ($summary['created'] ?? 0) + (int) ($summary['updated'] ?? 0);
     }
 
     /**
@@ -318,7 +570,11 @@ class Goetz_Migration_Scraper
 
     private function fetch_proxy_url(): string
     {
-        $proxy_url = (string) get_option('goetz_migration_fetch_proxy_url', '');
+        $proxy_url = $this->fetch_proxy_url;
+
+        if (!$proxy_url) {
+            $proxy_url = (string) get_option('goetz_migration_fetch_proxy_url', '');
+        }
 
         if (!$proxy_url) {
             $proxy_url = (string) getenv('GOETZ_MIGRATION_FETCH_PROXY_URL');
@@ -330,7 +586,7 @@ class Goetz_Migration_Scraper
     /**
      * @param array<string, mixed> $page
      */
-    private function build_page_content(string $slug, array $page, int $post_id): string
+    protected function build_page_content(string $slug, array $page, int $post_id): string
     {
         switch ($slug) {
             case 'home':
@@ -568,7 +824,7 @@ class Goetz_Migration_Scraper
 
     private function contact_content(): string
     {
-        $form_shortcode = $this->ensure_contact_form_shortcode();
+        $form_shortcode = $this->contact_form_shortcode();
 
         return $this->section(
             '<div class="goetz-contact-grid">'
@@ -589,70 +845,29 @@ class Goetz_Migration_Scraper
         . $this->block('goetz/cta');
     }
 
-    private function ensure_contact_form_shortcode(): string
+    /**
+     * Resolve an existing form without changing form posts during planning.
+     */
+    private function contact_form_shortcode(): string
     {
         if (!post_type_exists('wpforms')) {
             return '[wpforms id="1" title="false" description="false"]';
         }
 
-        $form_data = [
-            'field_id' => 4,
-            'fields'   => [
-                1 => ['id' => 1, 'type' => 'name', 'label' => 'Name', 'format' => 'simple', 'required' => '1'],
-                2 => ['id' => 2, 'type' => 'email', 'label' => 'E-Mail', 'required' => '1'],
-                3 => ['id' => 3, 'type' => 'text', 'label' => 'Phone', 'required' => '1'],
-                4 => ['id' => 4, 'type' => 'textarea', 'label' => 'Message', 'required' => '1'],
-            ],
-            'settings' => [
-                'form_title'      => 'Goetz Contact Form',
-                'submit_text'     => 'Send Message',
-                'confirmation_type' => 'message',
-                'confirmation_message' => 'Thank you for contacting Goetz & Goetz.',
-            ],
-        ];
-
-        $existing = get_page_by_title('Goetz Contact Form', OBJECT, 'wpforms');
-
-        if ($existing) {
-            $form_data['id'] = (string) $existing->ID;
-            wp_update_post([
-                'ID'           => (int) $existing->ID,
-                'post_content' => wp_json_encode($form_data),
-            ]);
-            return '[wpforms id="' . absint($existing->ID) . '" title="false" description="false"]';
-        }
-
-        $form_id = wp_insert_post([
-            'post_type'    => 'wpforms',
-            'post_status'  => 'publish',
-            'post_title'   => 'Goetz Contact Form',
-            'post_content' => wp_json_encode($form_data),
+        $forms = get_posts([
+            'post_type'      => 'wpforms',
+            'post_status'    => 'any',
+            'posts_per_page' => -1,
+            'orderby'        => 'ID',
+            'order'          => 'ASC',
         ]);
-
-        if (is_wp_error($form_id) || !$form_id) {
-            return '[wpforms id="1" title="false" description="false"]';
+        foreach ($forms as $form) {
+            if ($form instanceof WP_Post && $form->post_title === 'Goetz Contact Form') {
+                return '[wpforms id="' . absint($form->ID) . '" title="false" description="false"]';
+            }
         }
 
-        $form_data['id'] = (string) $form_id;
-        wp_update_post([
-            'ID'           => (int) $form_id,
-            'post_content' => wp_json_encode($form_data),
-        ]);
-
-        return '[wpforms id="' . absint($form_id) . '" title="false" description="false"]';
-    }
-
-    private function contact_form_needs_refresh(): bool
-    {
-        $existing = get_page_by_title('Goetz Contact Form', OBJECT, 'wpforms');
-
-        if (!$existing) {
-            return true;
-        }
-
-        $content = (string) get_post_field('post_content', (int) $existing->ID);
-
-        return strpos($content, '"label":"Phone"') === false || strpos($content, '"type":"text"') === false;
+        return '[wpforms id="1" title="false" description="false"]';
     }
 
     /**
@@ -732,7 +947,7 @@ class Goetz_Migration_Scraper
         return $html . '</ul><!-- /wp:list -->';
     }
 
-    private function localize_remote_media(string $content, int $post_id): string
+    protected function localize_remote_media(string $content, int $post_id): string
     {
         preg_match_all('#https?://(?:i\d\.wp\.com/)?goetzlegal\.com/wp-content/uploads/[^"\'\s<>)\\\\]+#i', $content, $matches);
         $urls = array_unique($matches[0] ?? []);
@@ -748,6 +963,72 @@ class Goetz_Migration_Scraper
         }
 
         return $content;
+    }
+
+    private function begin_owned_media_journal(): void
+    {
+        $this->owned_attachment_journal = [];
+    }
+
+    /**
+     * Testable journal seam used only after the current apply creates media.
+     */
+    protected function track_owned_attachment(int $attachment_id): void
+    {
+        if (
+            $attachment_id > 0
+            && get_post_type($attachment_id) === 'attachment'
+            && ! in_array($attachment_id, $this->owned_attachment_journal, true)
+        ) {
+            $this->owned_attachment_journal[] = $attachment_id;
+        }
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function release_owned_media_journal(): array
+    {
+        $owned_attachment_ids = $this->owned_attachment_journal;
+        $this->owned_attachment_journal = [];
+
+        return $owned_attachment_ids;
+    }
+
+    /**
+     * @param array<int, int> $attachment_ids
+     */
+    private function rollback_owned_media(array $attachment_ids): void
+    {
+        foreach (array_unique(array_map('absint', $attachment_ids)) as $attachment_id) {
+            if ($attachment_id > 0 && get_post_type($attachment_id) === 'attachment') {
+                wp_delete_attachment($attachment_id, true);
+            }
+        }
+    }
+
+    /**
+     * @param array<int, int> $attachment_ids
+     */
+    private function rollback_created_page(int $post_id, array $attachment_ids): void
+    {
+        $this->rollback_owned_media($attachment_ids);
+        if ($post_id > 0 && get_post($post_id) instanceof WP_Post) {
+            wp_delete_post($post_id, true);
+        }
+    }
+
+    /**
+     * Test seam for deterministic update-failure rollback coverage.
+     *
+     * @return int|WP_Error
+     */
+    protected function update_page_content(int $post_id, string $content)
+    {
+        return wp_update_post([
+            'ID'           => $post_id,
+            'post_content' => $content,
+        ], true);
     }
 
     private function sideload_media(string $url, int $post_id = 0): int
@@ -789,6 +1070,7 @@ class Goetz_Migration_Scraper
             return 0;
         }
 
+        $this->track_owned_attachment((int) $attachment_id);
         update_post_meta((int) $attachment_id, '_goetz_source_media_url', $source_url);
 
         return (int) $attachment_id;
@@ -814,93 +1096,256 @@ class Goetz_Migration_Scraper
     }
 
     /**
-     * @param array<string, mixed> $page
+     * Record only importer-owned provenance. Yoast metadata is owned by the
+     * site SEO configurator and is deliberately out of scope here.
+     *
+     * @param array<string, mixed> $item
      */
-    private function import_yoast_meta(int $post_id, array $page): void
+    private function record_import_meta(int $post_id, array $item): void
     {
-        $yoast = isset($page['yoast']) && is_array($page['yoast']) ? $page['yoast'] : [];
+        update_post_meta($post_id, '_goetz_source_url', esc_url_raw((string) ($item['source_url'] ?? '')));
+        update_post_meta($post_id, '_goetz_source_hash', sanitize_text_field((string) ($item['source_hash'] ?? '')));
+        update_post_meta($post_id, '_goetz_content_version', GOETZ_MIGRATION_CONTENT_VERSION);
+        update_post_meta($post_id, '_goetz_imported_at', current_time('mysql'));
+    }
 
-        if (!empty($yoast['title'])) {
-            update_post_meta($post_id, '_yoast_wpseo_title', wp_strip_all_tags((string) $yoast['title']));
+    /**
+     * @return array{title: string, status: string, content: string, template: string}
+     */
+    private function existing_state(int $post_id): array
+    {
+        $post = get_post($post_id);
+
+        return [
+            'title'    => $post instanceof WP_Post ? (string) $post->post_title : '',
+            'status'   => $post instanceof WP_Post ? (string) $post->post_status : '',
+            'content'  => $post instanceof WP_Post ? (string) $post->post_content : '',
+            'template' => (string) get_post_meta($post_id, '_wp_page_template', true),
+        ];
+    }
+
+    private function existing_state_fingerprint(int $post_id): string
+    {
+        return hash('sha256', (string) wp_json_encode($this->existing_state($post_id)));
+    }
+
+    /**
+     * Bind every separately reviewed plan row to its exact action and diff.
+     *
+     * @param array<string, mixed> $item
+     * @return array<string, mixed>
+     */
+    private function seal_plan_item(array $item): array
+    {
+        $item['action'] = $this->review_action((string) ($item['status'] ?? ''));
+        $item['review_fingerprint'] = $this->review_fingerprint($item);
+
+        return $item;
+    }
+
+    /**
+     * @param array<string, mixed> $item
+     */
+    private function review_fingerprint_is_valid(array $item): bool
+    {
+        $status = $this->fingerprint_value($item['status'] ?? '');
+        $expected_action = $this->review_action($status);
+        $actual_action = $this->fingerprint_value($item['action'] ?? '');
+        $fingerprint = $this->fingerprint_value($item['review_fingerprint'] ?? '');
+
+        return $expected_action !== ''
+            && $actual_action === $expected_action
+            && preg_match('/^[a-f0-9]{64}$/', $fingerprint) === 1
+            && hash_equals($fingerprint, $this->review_fingerprint($item));
+    }
+
+    private function review_action(string $status): string
+    {
+        if ($status === 'skipped_existing') {
+            return 'skip';
+        }
+        if ($status === 'create') {
+            return 'create';
+        }
+        if ($status === 'update_existing') {
+            return 'update';
         }
 
-        if (!empty($yoast['description'])) {
-            update_post_meta($post_id, '_yoast_wpseo_metadesc', wp_strip_all_tags((string) $yoast['description']));
+        return '';
+    }
+
+    /**
+     * @param array<string, mixed> $item
+     */
+    private function review_fingerprint(array $item): string
+    {
+        $payload = [
+            'status'                   => $this->fingerprint_value($item['status'] ?? ''),
+            'action'                   => $this->fingerprint_value($item['action'] ?? ''),
+            'slug'                     => $this->fingerprint_value($item['slug'] ?? ''),
+            'source_url'               => $this->fingerprint_value($item['source_url'] ?? ''),
+            'source_hash'              => $this->fingerprint_value($item['source_hash'] ?? ''),
+            'title'                    => $this->fingerprint_value($item['title'] ?? ''),
+            'existing_id'              => is_numeric($item['existing_id'] ?? null)
+                ? (int) $item['existing_id']
+                : 0,
+            'content_hash_before'      => $this->fingerprint_value($item['content_hash_before'] ?? ''),
+            'state_fingerprint_before' => $this->fingerprint_value($item['state_fingerprint_before'] ?? ''),
+            'content_hash_after'       => $this->fingerprint_value($item['content_hash_after'] ?? ''),
+            'diff'                     => $this->fingerprint_value($item['diff'] ?? ''),
+        ];
+
+        return hash('sha256', (string) wp_json_encode(
+            $payload,
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+        ));
+    }
+
+    /**
+     * @param mixed $value
+     */
+    private function fingerprint_value($value): string
+    {
+        return is_scalar($value) ? (string) $value : '';
+    }
+
+    private function normalized_block_diff(string $before, string $after, string $slug): string
+    {
+        $before_lines = $this->normalized_block_lines($before);
+        $after_lines = $this->normalized_block_lines($after);
+
+        if ($before_lines === []) {
+            $before_lines = ['(empty)'];
+        }
+        if ($after_lines === []) {
+            $after_lines = ['(empty)'];
         }
 
-        if (!empty($yoast['canonical'])) {
-            update_post_meta($post_id, '_yoast_wpseo_canonical', esc_url_raw(get_permalink($post_id)));
+        $lines = [
+            '--- current/' . $slug,
+            '+++ import/' . $slug,
+            '@@ normalized block tree @@',
+        ];
+        foreach ($this->diff_lines($before_lines, $after_lines) as $line) {
+            $lines[] = $line;
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function normalized_block_lines(string $content): array
+    {
+        $lines = [];
+        foreach (parse_blocks($content) as $block) {
+            if (is_array($block)) {
+                $this->append_normalized_block_lines($block, 0, $lines);
+            }
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @param array<string, mixed> $block
+     * @param array<int, string>   $lines
+     */
+    private function append_normalized_block_lines(array $block, int $depth, array &$lines): void
+    {
+        $name = isset($block['blockName']) && is_string($block['blockName'])
+            ? $block['blockName']
+            : 'freeform';
+        $attrs = isset($block['attrs']) && is_array($block['attrs'])
+            ? $this->normalize_diff_value($block['attrs'])
+            : [];
+        $html = trim((string) preg_replace('/\s+/u', ' ', (string) ($block['innerHTML'] ?? '')));
+        $line = str_repeat('  ', $depth) . $name;
+
+        if ($attrs !== []) {
+            $line .= ' ' . wp_json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }
+        if ($html !== '') {
+            $line .= ' :: ' . $html;
+        }
+        if ($name !== 'freeform' || $attrs !== [] || $html !== '') {
+            $lines[] = $line;
+        }
+
+        foreach ($block['innerBlocks'] ?? [] as $child) {
+            if (is_array($child)) {
+                $this->append_normalized_block_lines($child, $depth + 1, $lines);
+            }
         }
     }
 
     /**
-     * @param array<string, int> $imported_ids
+     * @return mixed
      */
-    private function configure_site(array $imported_ids): void
+    private function normalize_diff_value($value)
     {
-        if (!empty($imported_ids['home'])) {
-            update_option('show_on_front', 'page');
-            update_option('page_on_front', (int) $imported_ids['home']);
-            update_option('page_for_posts', 0);
+        if (! is_array($value)) {
+            return $value;
         }
 
-        $logo_id = $this->sideload_media('https://goetzlegal.com/wp-content/uploads/2022/08/GoetzLogo.png', 0);
-        if ($logo_id) {
-            set_theme_mod('custom_logo', $logo_id);
+        $is_list = $value === [] || array_keys($value) === range(0, count($value) - 1);
+        if (! $is_list) {
+            ksort($value);
+        }
+        foreach ($value as $key => $child) {
+            $value[$key] = $this->normalize_diff_value($child);
         }
 
-        $this->rebuild_menu('Goetz Primary', 'primary', $imported_ids);
-        $this->rebuild_menu('Goetz Footer', 'footer', $imported_ids);
-        $this->cleanup_default_content();
-        flush_rewrite_rules();
-    }
-
-    private function cleanup_default_content(): void
-    {
-        foreach (['sample-page', 'privacy-policy'] as $slug) {
-            $page = get_page_by_path($slug, OBJECT, 'page');
-            if ($page) {
-                wp_delete_post((int) $page->ID, true);
-            }
-        }
-
-        $post = get_page_by_path('hello-world', OBJECT, 'post');
-        if ($post) {
-            wp_delete_post((int) $post->ID, true);
-        }
+        return $value;
     }
 
     /**
-     * @param array<string, int> $imported_ids
+     * Produce a stable line diff using a longest-common-subsequence walk.
+     *
+     * @param array<int, string> $before
+     * @param array<int, string> $after
+     * @return array<int, string>
      */
-    private function rebuild_menu(string $name, string $location, array $imported_ids): void
+    private function diff_lines(array $before, array $after): array
     {
-        $menu = wp_get_nav_menu_object($name);
-        $menu_id = $menu ? (int) $menu->term_id : (int) wp_create_nav_menu($name);
+        $before_count = count($before);
+        $after_count = count($after);
+        $matrix = array_fill(0, $before_count + 1, array_fill(0, $after_count + 1, 0));
 
-        foreach (wp_get_nav_menu_items($menu_id) ?: [] as $item) {
-            wp_delete_post((int) $item->ID, true);
-        }
-
-        foreach ($this->approved_pages as $path => $meta) {
-            $slug = $meta['slug'];
-            if (empty($imported_ids[$slug])) {
-                continue;
+        for ($i = $before_count - 1; $i >= 0; $i--) {
+            for ($j = $after_count - 1; $j >= 0; $j--) {
+                $matrix[$i][$j] = $before[$i] === $after[$j]
+                    ? $matrix[$i + 1][$j + 1] + 1
+                    : max($matrix[$i + 1][$j], $matrix[$i][$j + 1]);
             }
-
-            $title = ($location === 'footer' && $slug === 'contact') ? 'Contact Us' : $meta['title'];
-
-            wp_update_nav_menu_item($menu_id, 0, [
-                'menu-item-title'     => $title,
-                'menu-item-object-id' => (int) $imported_ids[$slug],
-                'menu-item-object'    => 'page',
-                'menu-item-type'      => 'post_type',
-                'menu-item-status'    => 'publish',
-            ]);
         }
 
-        $locations = get_theme_mod('nav_menu_locations', []);
-        $locations[$location] = $menu_id;
-        set_theme_mod('nav_menu_locations', $locations);
+        $lines = [];
+        $i = 0;
+        $j = 0;
+        while ($i < $before_count && $j < $after_count) {
+            if ($before[$i] === $after[$j]) {
+                $lines[] = '  ' . $before[$i];
+                $i++;
+                $j++;
+            } elseif ($matrix[$i + 1][$j] >= $matrix[$i][$j + 1]) {
+                $lines[] = '- ' . $before[$i];
+                $i++;
+            } else {
+                $lines[] = '+ ' . $after[$j];
+                $j++;
+            }
+        }
+        while ($i < $before_count) {
+            $lines[] = '- ' . $before[$i];
+            $i++;
+        }
+        while ($j < $after_count) {
+            $lines[] = '+ ' . $after[$j];
+            $j++;
+        }
+
+        return $lines;
     }
 }

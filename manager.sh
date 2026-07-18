@@ -304,13 +304,26 @@ test_integration() {
     return 2
   }
 
+  local integration_url="${WP_URL:-http://localhost:${WP_PORT:-8080}}"
+  is_local_test_url "$integration_url" || {
+    echo 'test:integration is local-loopback-only.' >&2
+    return 2
+  }
+
   install_site
   local script
   local ran=0
   while IFS= read -r -d '' script; do
     ran=1
-    wp eval-file "/var/www/html/${script}"
-  done < <(find wp-content/plugins/goetz-site/tests/php -type f -name '*.php' -print0 2>/dev/null | sort -z)
+    compose exec -T \
+      -e GOETZ_ALLOW_MUTATING_TESTS=1 \
+      -e WP_ENVIRONMENT_TYPE=local \
+      wpcli wp \
+      --path="${WP_PATH}" --allow-root eval-file "/var/www/html/${script}"
+  done < <(find \
+    wp-content/plugins/goetz-site/tests/php \
+    wp-content/plugins/goetz-migration/tests \
+    -type f -name '*.php' -print0 2>/dev/null | sort -z)
 
   if (( ran == 0 )); then
     echo 'No WordPress integration scripts are present yet.'
@@ -802,17 +815,7 @@ migrate_scan() {
     echo 'migrate:scan does not accept additional arguments.' >&2
     return 2
   }
-  wp plugin activate goetz-migration || true
   wp goetz-migration scan --source="${SOURCE_URL:-https://goetzlegal.com}"
-}
-
-migrate_import() {
-  (( $# == 0 )) || {
-    echo 'migrate:import does not accept additional arguments.' >&2
-    return 2
-  }
-  wp plugin activate goetz-migration || true
-  wp goetz-migration import --source="${SOURCE_URL:-https://goetzlegal.com}"
 }
 
 db_export() {
@@ -886,7 +889,6 @@ case "${1:-help}" in
   test:e2e) shift; test_e2e "$@" ;;
   test:all) shift; test_all "$@" ;;
   migrate:scan) shift; migrate_scan "$@" ;;
-  migrate:import) shift; migrate_import "$@" ;;
   *)
     cat <<'MSG'
 Usage: ./manager.sh <command>
@@ -918,8 +920,7 @@ Commands:
   visual:capture-reference  Write the one-time immutable legacy homepage baseline
   test:e2e         Run authenticated and public tests against local WordPress
   test:all         Run all local contracts, unit, integration, compat, and E2E tests
-  migrate:scan     Dry-run source discovery/import preview
-  migrate:import   Import/update live-site pages and media
+  migrate:scan     Dry-run source discovery/create-only preview
 MSG
     ;;
 esac

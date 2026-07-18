@@ -9,7 +9,7 @@ cp .env.example .env
 ./manager.sh start
 ./manager.sh install
 ./manager.sh migrate:scan
-./manager.sh migrate:import
+./manager.sh wp goetz-migration import --source=https://goetzlegal.com
 ./manager.sh theme:build
 ```
 
@@ -42,8 +42,7 @@ Set `FETCH_PROXY_URL` in `.env` if the migration tool ever needs a Cloudflare Wo
 | `./manager.sh test:integration` | Run the WordPress integration scripts |
 | `./manager.sh test:e2e:auth` | Run authenticated Gutenberg browser checks |
 | `./manager.sh test:public` | Run public frontend, SEO, accessibility, and visual checks |
-| `./manager.sh migrate:scan` | Dry-run source discovery |
-| `./manager.sh migrate:import` | Import missing approved pages and media |
+| `./manager.sh migrate:scan` | Read-only source discovery and create-only preview |
 
 ## Content Scope
 
@@ -67,7 +66,28 @@ The theme lives in `wp-content/themes/goetz-legal` and keeps the Tailpress 5 fra
 
 `wp-content/plugins/goetz-site` is the required runtime for Site Settings and the native dynamic Gutenberg blocks. `wp-content/plugins/goetz-migration` owns source discovery and the guarded legacy import path.
 
-It discovers the source through `page-sitemap.xml`, fetches public REST API page data first, falls back to rendered HTML when needed, imports media into the local media library, rewrites image URLs, configures the homepage, and rebuilds the primary/footer menus.
+The legacy importer discovers the source through `page-sitemap.xml`, fetches public REST API page data first, and falls back to rendered HTML. Its normal path is create-only: missing approved pages may be created, while existing pages are skipped before content, media, or form preparation. It never changes existing templates, menu assignments, the custom logo, front-page settings, default content, or Yoast metadata.
+
+Preview the normalized block plan before any legacy import:
+
+```bash
+./manager.sh wp goetz-migration import --source=https://goetzlegal.com --dry-run
+```
+
+Create missing pages only:
+
+```bash
+./manager.sh wp goetz-migration import --source=https://goetzlegal.com
+```
+
+Existing page content can be replaced only through the direct WP-CLI force path. Review the force diff first, then approve interactively or pass `--yes` for an already reviewed non-interactive run:
+
+```bash
+./manager.sh wp goetz-migration import --source=https://goetzlegal.com --dry-run --force-existing --yes
+./manager.sh wp goetz-migration import --source=https://goetzlegal.com --force-existing
+```
+
+There is intentionally no manager import shortcut and no wp-admin force control.
 
 The James attorney profile has a repository-owned, idempotent content migration. Preview it before applying:
 

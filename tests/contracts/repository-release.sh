@@ -1476,7 +1476,7 @@ reset_fake_docker
 grep -Fq '<logs> <-f> <service with spaces>' "$fixture/bin/docker-record.2" ||
   fail 'logs dispatcher did not preserve a service argument containing spaces'
 
-for focused_command in 'logs one two' 'shell unexpected' 'db unexpected' 'db:export one two' 'migrate:scan unexpected' 'migrate:import unexpected'; do
+for focused_command in 'logs one two' 'shell unexpected' 'db unexpected' 'db:export one two' 'migrate:scan unexpected'; do
   reset_fake_docker
   read -r -a focused_arguments <<< "$focused_command"
   if /usr/bin/env -i \
@@ -1488,6 +1488,78 @@ for focused_command in 'logs one two' 'shell unexpected' 'db unexpected' 'db:exp
   [[ ! -e "$fixture/bin/docker-record" ]] ||
     fail "focused dispatcher validation invoked Docker before rejecting arguments: $focused_command"
 done
+
+reset_fake_docker
+if /usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  /bin/bash "$fixture/manager.sh" test:integration >/dev/null 2>&1; then
+  fail 'test:integration accepted a non-loopback WP_URL'
+fi
+[[ ! -e "$fixture/bin/docker-record" ]] ||
+  fail 'test:integration invoked Docker before rejecting a non-loopback WP_URL'
+
+! grep -Eq 'force-existing|migrate:import' manager.sh ||
+  fail 'manager must not expose a legacy importer write or force shortcut'
+grep -Fq 'migrate:scan)' manager.sh ||
+  fail 'manager must retain the read-only legacy discovery shortcut'
+if awk '/^migrate_scan\(\)/,/^}/ { print }' manager.sh | grep -Fq 'wp plugin activate'; then
+  fail 'migrate:scan must not activate plugins or write the active_plugins option'
+fi
+grep -Fq 'wp-content/plugins/goetz-migration/tests' manager.sh ||
+  fail 'test:integration must discover the legacy importer safety harness'
+integration_runner_body="$(awk '/^test_integration\(\)/,/^}/ { print }' manager.sh)"
+grep -Fq 'is_local_test_url "$integration_url"' <<< "$integration_runner_body" ||
+  fail 'test:integration must reject every non-loopback WordPress URL'
+grep -Fq -- '-e GOETZ_ALLOW_MUTATING_TESTS=1' <<< "$integration_runner_body" ||
+  fail 'test:integration must opt in to guarded mutations only for its eval-file subprocesses'
+grep -Fq -- '-e WP_ENVIRONMENT_TYPE=local' <<< "$integration_runner_body" ||
+  fail 'test:integration must force an explicit local WordPress environment for mutating fixtures'
+generic_wp_body="$(awk '/^wp\(\)/,/^}/ { print }' manager.sh)"
+! grep -Fq 'GOETZ_ALLOW_MUTATING_TESTS' <<< "$generic_wp_body" ||
+  fail 'generic wp passthrough must never opt in to mutating integration tests'
+grep -Fq 'goetz_migration_handle_admin_request' wp-content/plugins/goetz-migration/goetz-migration.php ||
+  fail 'legacy importer admin requests must use the guarded create-only handler'
+grep -Fq "WP_CLI::confirm('Force mode can replace existing editor page content. Continue?')" \
+  wp-content/plugins/goetz-migration/goetz-migration.php ||
+  fail 'legacy CLI force mode must require an explicit confirmation path'
+grep -Fq 'private static function force_confirmation_required' \
+  wp-content/plugins/goetz-migration/goetz-migration.php ||
+  fail 'CLI force policy helper must remain private and unavailable as a subcommand'
+grep -Fq 'private static function import_has_errors' \
+  wp-content/plugins/goetz-migration/goetz-migration.php ||
+  fail 'CLI import error policy must remain private and unavailable as a subcommand'
+grep -Fq 'WP_CLI::error($message);' wp-content/plugins/goetz-migration/goetz-migration.php ||
+  fail 'legacy CLI imports must exit nonzero when an apply reports errors'
+! grep -Eq 'WP_CLI::error\([^)]*(content|diff)' wp-content/plugins/goetz-migration/goetz-migration.php ||
+  fail 'legacy CLI errors must not leak imported content or reviewed diffs'
+
+migration_safety_file='wp-content/plugins/goetz-migration/tests/import-safety.php'
+for required_guard in \
+  "getenv('GOETZ_ALLOW_MUTATING_TESTS') === '1'" \
+  'wp_get_environment_type()' \
+  "home_url('/')" \
+  "site_url('/')"; do
+  grep -Fq "$required_guard" "$migration_safety_file" ||
+    fail "legacy importer integration harness is missing pre-write guard: $required_guard"
+done
+grep -Fq '$existing_id = 0;' "$migration_safety_file" ||
+  fail 'legacy importer integration harness must initialize fixture IDs before try/finally'
+guard_line="$(grep -n -m1 "getenv('GOETZ_ALLOW_MUTATING_TESTS')" "$migration_safety_file" | cut -d: -f1 || true)"
+try_line="$(grep -n -m1 '^try {' "$migration_safety_file" | cut -d: -f1 || true)"
+seed_line="$(grep -n -m1 '\$seeded_existing_id = wp_insert_post' "$migration_safety_file" | cut -d: -f1 || true)"
+[[ "$guard_line" =~ ^[0-9]+$ && "$try_line" =~ ^[0-9]+$ && "$seed_line" =~ ^[0-9]+$ ]] ||
+  fail 'legacy importer integration harness guard/cleanup ordering is not inspectable'
+(( guard_line < try_line && try_line < seed_line )) ||
+  fail 'legacy importer integration harness can create fixtures before its guard or try/finally'
+grep -Fq '$original_cache_value' "$migration_safety_file" ||
+  fail 'legacy importer integration harness must snapshot preexisting object-cache state'
+grep -Fq '$cache_restore_verified' "$migration_safety_file" ||
+  fail 'legacy importer integration harness must verify object-cache restoration'
+grep -Fq "'review_fingerprint'" wp-content/plugins/goetz-migration/includes/class-scraper.php ||
+  fail 'legacy importer plans must bind a deterministic review fingerprint'
+grep -Fq 'rollback_owned_media' wp-content/plugins/goetz-migration/includes/class-scraper.php ||
+  fail 'legacy importer must journal and roll back media owned by failed applies'
 
 reset_fake_docker
 /usr/bin/env -i \
