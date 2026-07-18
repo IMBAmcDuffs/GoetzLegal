@@ -148,6 +148,7 @@ build_repo="$fixture/build-repo"
 mkdir -p \
   "$build_repo/scripts/release" \
   "$build_repo/wp-content/themes/goetz-legal/resources" \
+  "$build_repo/wp-content/plugins/goetz-site/includes/cli" \
   "$build_repo/wp-content/plugins/goetz-site/src" \
   "$build_repo/wp-content/plugins/goetz-migration" \
   "$build_repo/wp-content/plugins/wordpress-seo" \
@@ -182,6 +183,8 @@ printf '{"lockfileVersion":3}\n' > "$build_repo/wp-content/plugins/goetz-site/pa
 printf 'runtime editor source\n' > "$build_repo/wp-content/plugins/goetz-site/src/index.js"
 printf 'must not ship beside runtime source\n' > "$build_repo/wp-content/plugins/goetz-site/src/stable-blocks.test.js"
 printf 'must not ship beside runtime source\n' > "$build_repo/wp-content/plugins/goetz-site/src/editor.spec.php"
+cp wp-content/plugins/goetz-site/includes/cli/attorney-profile-bootstrap.php \
+  "$build_repo/wp-content/plugins/goetz-site/includes/cli/attorney-profile-bootstrap.php"
 cat > "$build_repo/wp-content/plugins/goetz-site/goetz-site.php" <<'PHP'
 <?php
 /*
@@ -301,6 +304,8 @@ mapfile -t plugin_roots < <(find "$payload/wp-content/plugins" -mindepth 1 -maxd
 [[ -s "$payload/wp-content/themes/goetz-legal/vendor/autoload.php" ]] || fail 'theme production vendor is missing'
 [[ -s "$payload/wp-content/plugins/goetz-site/build/index.js" ]] || fail 'site block build is missing'
 [[ -s "$payload/wp-content/plugins/goetz-site/build/index.asset.php" ]] || fail 'site block asset metadata is missing'
+[[ -s "$payload/wp-content/plugins/goetz-site/includes/cli/attorney-profile-bootstrap.php" ]] ||
+  fail 'attorney profile first-install bootstrap is missing'
 ! find "$payload" \( -name node_modules -o -name tests -o -name screenshots -o -name '*.map' -o -name '*.sql' -o -name '.env*' \) -print -quit | grep -q . ||
   fail 'payload contains a forbidden development, secret, SQL, or source-map entry'
 ! find "$payload" -type f \( -name '*.test.*' -o -name '*.spec.*' \) -print -quit | grep -q . ||
@@ -407,7 +412,6 @@ printf 'historical PHP Fatal error: this predates deployment\n' > "$remote_site/
 printf 'original upload\n' > "$remote_site/wp-content/uploads/original.txt"
 for relative in \
   wp-content/themes/goetz-legal \
-  wp-content/plugins/goetz-site \
   wp-content/plugins/goetz-migration \
   wp-content/plugins/wordpress-seo \
   wp-content/plugins/wpforms-lite; do
@@ -417,7 +421,7 @@ done
 printf '%s\n' 'https://goetzgoetz.kinsta.cloud' > "$remote_state/home"
 printf '%s\n' 'https://goetzgoetz.kinsta.cloud' > "$remote_state/siteurl"
 printf '%s\n' 'goetz-legal' > "$remote_state/active-theme"
-printf '%s\n' 'goetz-site' > "$remote_state/active-plugins"
+: > "$remote_state/active-plugins"
 printf '%s\n' 'kinsta-mu-plugins' > "$remote_state/must-use-plugins"
 printf '0\n' > "$remote_state/homepage-applied"
 printf '0\n' > "$remote_state/seo-applied"
@@ -536,6 +540,56 @@ shift || true
 case "$command_name" in
   eval)
     if [[ -f '__RECORD_ROOT__/multisite' ]]; then printf 'yes'; else printf 'no'; fi
+    ;;
+  eval-file)
+    bootstrap_file="${1:-}"
+    [[ "$bootstrap_file" == '__REMOTE_SITE__/wp-content/plugins/goetz-site/includes/cli/attorney-profile-bootstrap.php' ]] || exit 86
+    [[ -f "$bootstrap_file" && ! -L "$bootstrap_file" ]] || exit 86
+    if [[ -n "${GOETZ_ATTORNEY_SLUG:-}" && -n "${GOETZ_ATTORNEY_MODE:-}" ]]; then
+      slug="${GOETZ_ATTORNEY_SLUG:-}"
+      mode="${GOETZ_ATTORNEY_MODE:-}"
+      [[ "$slug" == james-l-goetz || "$slug" == gregory-w-goetz ]] || exit 86
+      [[ "$mode" == plan || "$mode" == apply || "$mode" == verify ]] || exit 86
+      printf '<--path=%s><attorney-profile><%s><%s>\n' '__REMOTE_SITE__' "$slug" "$mode" >> "$record"
+      if [[ "$slug" == james-l-goetz ]]; then
+        profile_state="$state/james-profile-state"
+      else
+        profile_state="$state/gregory-profile-state"
+      fi
+      read -r current_profile_state < "$profile_state"
+      [[ "$current_profile_state" == 0 || "$current_profile_state" == 1 || "$current_profile_state" == 2 ||
+        "$current_profile_state" == 3 || "$current_profile_state" == 4 || "$current_profile_state" == 5 ]] || exit 86
+      case "$mode" in
+        verify)
+          if [[ "$slug" == gregory-w-goetz && -f '__RECORD_ROOT__/fail-next-gregory-profile-verify' ]]; then
+            find '__RECORD_ROOT__/fail-next-gregory-profile-verify' -delete
+            exit 48
+          fi
+          case "$current_profile_state" in
+            1) printf '{"slug":"%s","status":"verified"}\n' "$slug" ;;
+            2) printf '{"slug":"%s","status":"managed_modified"}\n' "$slug" ;;
+            *) exit 48 ;;
+          esac
+          ;;
+        apply)
+          [[ "$current_profile_state" == 0 ]] || exit 48
+          printf '1\n' > "$profile_state"
+          printf 'Success: Migrated attorney profile %s.\n' "$slug"
+          ;;
+        plan)
+          case "$current_profile_state" in
+            0) printf '{"slug":"%s","status":"ready"}\n' "$slug" ;;
+            1) printf '{"slug":"%s","status":"noop"}\n' "$slug" ;;
+            2) printf '{"slug":"%s","status":"managed_modified"}\n' "$slug" ;;
+            3) printf '{"slug":"%s","status":"conflict"}\n' "$slug" ;;
+            4) printf '{"slug":"%s","status":"migration_evidence_mismatch"}\n' "$slug" ;;
+            5) printf '{"slug":"%s","status":"version_conflict"}\n' "$slug" ;;
+          esac
+          ;;
+      esac
+    else
+      exit 86
+    fi
     ;;
   option)
     action="$1"; name="$2"
@@ -939,14 +993,16 @@ if run_remote "$remote_repo/scripts/release/remote-backup.sh" \
   fail 'pre-domain-cutover backup accepted a legacy current-release receipt'
 fi
 
-# The deployment packet records the already-active goetz-site runtime required
-# for the pre-mutation attorney-profile planner, and couples the intended
-# release, staging origin, purpose, and timestamp.
+# The deployment packet models a first installation: goetz-site is neither
+# present nor active. The release must bootstrap its guarded profile planner
+# from the newly synced code and preserve the absent state during rollback.
 run_remote "$remote_repo/scripts/release/remote-backup.sh" \
   --backup-id=contract-deploy --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
 local_backup="$remote_repo/__dev/kinsta-backups/contract-deploy"
-[[ "$(cat "$local_backup/active-plugins.txt")" == 'goetz-site' ]] ||
-  fail 'backup did not preserve the required active goetz-site runtime'
+[[ ! -s "$local_backup/active-plugins.txt" ]] ||
+  fail 'first-install backup unexpectedly recorded an active plugin'
+grep -Fqx $'wp-content/plugins/goetz-site\tabsent\t-' "$local_backup/code-state.tsv" ||
+  fail 'first-install backup did not preserve the absent goetz-site runtime'
 for required_backup_entry in database.sql uploads.tar.gz code-state.tsv active-theme.txt home-url.txt site-url.txt \
   BACKUP-METADATA release-state.tsv SHA256SUMS LOCAL-VERIFICATION; do
   [[ -s "$local_backup/$required_backup_entry" ]] || fail "backup packet is missing $required_backup_entry"
@@ -957,10 +1013,10 @@ assert_contains "$local_backup/BACKUP-METADATA" "release_manifest_sha256=$first_
 (cd "$local_backup" && sha256sum -c SHA256SUMS >/dev/null) || fail 'downloaded backup hashes do not verify'
 
 # A profile conflict created after the backup must be detected by the newly
-# synced, already-active goetz-site code before any database write. Recovery
-# restores code only: the client edit and post-backup upload remain intact and
-# no older database or uploads packet is imported. The two migration-evidence
-# conflict states have the same fail-closed boundary.
+# synced bootstrap code before any database write. Recovery restores code only:
+# the client edit and post-backup upload remain intact, the plugin becomes
+# absent again, and no older database or uploads packet is imported. The two
+# migration-evidence conflict states have the same fail-closed boundary.
 printf 'post-backup client upload\n' > "$remote_site/wp-content/uploads/post-backup-client-edit.txt"
 preflight_imports_before="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
 for blocked_profile_state in 3 4 5; do
@@ -975,8 +1031,8 @@ for blocked_profile_state in 3 4 5; do
     fail "code-only recovery erased Gregory preflight state $blocked_profile_state"
   [[ "$(cat "$remote_site/wp-content/uploads/post-backup-client-edit.txt")" == 'post-backup client upload' ]] ||
     fail 'code-only recovery restored uploads over a post-backup client write'
-  [[ -f "$remote_site/wp-content/plugins/goetz-site/old.txt" ]] ||
-    fail 'code-only recovery did not restore the prior goetz-site runtime'
+  [[ ! -e "$remote_site/wp-content/plugins/goetz-site" && ! -L "$remote_site/wp-content/plugins/goetz-site" ]] ||
+    fail 'code-only recovery did not restore the absent goetz-site runtime'
 done
 preflight_imports_after="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
 (( preflight_imports_after == preflight_imports_before )) ||
@@ -1003,6 +1059,27 @@ post_apply_imports_after="$(grep -c '<db><import>' "$record_root/wp.log" || true
 [[ "$(cat "$remote_state/gregory-profile-state")" == 0 ]] ||
   fail 'attorney-profile recovery did not restore Gregory legacy content'
 
+# A first-install interruption after activation has crossed the database
+# mutation boundary. Full packet recovery must remove the newly installed code,
+# restore the empty active-plugin inventory, and restore the legacy profile.
+first_install_activation_imports_before="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
+touch "$record_root/signal-next-deploy-plugin-activate"
+if run_remote "$remote_repo/scripts/release/remote-apply.sh" \
+  --release-dir="$release_dir" --backup-id=contract-deploy >/dev/null 2>&1; then
+  fail 'first installation unexpectedly succeeded after activation interruption'
+fi
+first_install_activation_imports_after="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
+(( first_install_activation_imports_after == first_install_activation_imports_before + 1 )) ||
+  fail 'first-install activation interruption ran recovery zero or multiple times'
+assert_contains "$remote_private/operations/deploy-$release_sha-contract-deploy.status" \
+  'phase=auto_rollback_succeeded'
+[[ ! -e "$remote_site/wp-content/plugins/goetz-site" && ! -L "$remote_site/wp-content/plugins/goetz-site" ]] ||
+  fail 'first-install activation recovery did not remove the newly installed plugin'
+[[ ! -s "$remote_state/active-plugins" ]] ||
+  fail 'first-install activation recovery did not restore the empty active-plugin inventory'
+[[ "$(cat "$remote_state/gregory-profile-state")" == 0 ]] ||
+  fail 'first-install activation recovery did not restore Gregory legacy content'
+
 deploy_wp_start="$(wc -l < "$record_root/wp.log")"
 run_remote "$remote_repo/scripts/release/remote-apply.sh" \
   --release-dir="$release_dir" --backup-id=contract-deploy >/dev/null
@@ -1015,35 +1092,35 @@ assert_contains "$remote_private/state/current-release" "release_commit=$release
 [[ "$(cat "$remote_state/home")" == 'https://goetzgoetz.kinsta.cloud' ]] || fail 'deployment changed the staging origin'
 [[ "$(cat "$remote_state/james-profile-state")" == 1 ]] || fail 'deployment regressed the current James profile'
 [[ "$(cat "$remote_state/gregory-profile-state")" == 1 ]] || fail 'deployment did not migrate the Gregory profile'
-[[ "$(grep -Fxc '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=james-l-goetz>' "$deploy_wp_log")" -eq 3 ]] ||
+[[ "$(grep -Fxc '<--path='"$remote_site"'><attorney-profile><james-l-goetz><plan>' "$deploy_wp_log")" -eq 3 ]] ||
   fail 'deployment did not preflight, preview, and post-preview James exactly once each'
-[[ "$(grep -Fxc '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=james-l-goetz><--apply>' "$deploy_wp_log" || true)" -eq 0 ]] ||
+[[ "$(grep -Fxc '<--path='"$remote_site"'><attorney-profile><james-l-goetz><apply>' "$deploy_wp_log" || true)" -eq 0 ]] ||
   fail 'deployment rewrote the already-current James profile'
-[[ "$(grep -Fxc '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=james-l-goetz><--verify>' "$deploy_wp_log")" -eq 1 ]] ||
+[[ "$(grep -Fxc '<--path='"$remote_site"'><attorney-profile><james-l-goetz><verify>' "$deploy_wp_log")" -eq 1 ]] ||
   fail 'deployment did not verify James exactly once'
-[[ "$(grep -Fxc '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=gregory-w-goetz>' "$deploy_wp_log")" -eq 3 ]] ||
+[[ "$(grep -Fxc '<--path='"$remote_site"'><attorney-profile><gregory-w-goetz><plan>' "$deploy_wp_log")" -eq 3 ]] ||
   fail 'deployment did not preflight, preview, and post-preview Gregory exactly once each'
-[[ "$(grep -Fxc '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=gregory-w-goetz><--apply>' "$deploy_wp_log")" -eq 1 ]] ||
+[[ "$(grep -Fxc '<--path='"$remote_site"'><attorney-profile><gregory-w-goetz><apply>' "$deploy_wp_log")" -eq 1 ]] ||
   fail 'deployment did not apply the guarded Gregory migration exactly once'
-[[ "$(grep -Fxc '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=gregory-w-goetz><--verify>' "$deploy_wp_log")" -eq 1 ]] ||
+[[ "$(grep -Fxc '<--path='"$remote_site"'><attorney-profile><gregory-w-goetz><verify>' "$deploy_wp_log")" -eq 1 ]] ||
   fail 'deployment did not verify Gregory exactly once'
 awk '
   /<goetz-site><migrate><homepage><--apply><--format=json>/ { homepage_apply++; if (homepage_apply == 2) homepage_noop = NR }
-  /<goetz-site><attorney-profile><--slug=james-l-goetz>$/ {
+  /<attorney-profile><james-l-goetz><plan>$/ {
     james_preview++
     if (james_preview == 1) james_preflight = NR
     else if (james_preview == 2) james_first = NR
     else james_post = NR
   }
-  /<goetz-site><attorney-profile><--slug=james-l-goetz><--verify>/ { james_verify = NR }
-  /<goetz-site><attorney-profile><--slug=gregory-w-goetz>$/ {
+  /<attorney-profile><james-l-goetz><verify>/ { james_verify = NR }
+  /<attorney-profile><gregory-w-goetz><plan>$/ {
     gregory_preview++
     if (gregory_preview == 1) gregory_preflight = NR
     else if (gregory_preview == 2) gregory_first = NR
     else gregory_post = NR
   }
-  /<goetz-site><attorney-profile><--slug=gregory-w-goetz><--apply>/ { gregory_apply = NR }
-  /<goetz-site><attorney-profile><--slug=gregory-w-goetz><--verify>/ { gregory_verify = NR }
+  /<attorney-profile><gregory-w-goetz><apply>/ { gregory_apply = NR }
+  /<attorney-profile><gregory-w-goetz><verify>/ { gregory_verify = NR }
   /<goetz-site><seo><configure><--strict><--format=json>/ { if (!seo) seo = NR }
   END {
     exit !(homepage_apply == 2 && james_preview == 3 && gregory_preview == 3 &&
@@ -1085,13 +1162,31 @@ managed_wp_log="$fixture/deploy-attorney-managed.wp.log"
 tail -n "+$((managed_wp_start + 1))" "$record_root/wp.log" > "$managed_wp_log"
 [[ "$(cat "$remote_state/james-profile-state")" == 2 ]] ||
   fail 'deployment overwrote a managed James profile editor change'
-[[ "$(grep -Fxc '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=james-l-goetz><--apply>' "$managed_wp_log" || true)" -eq 0 ]] ||
+[[ "$(grep -Fxc '<--path='"$remote_site"'><attorney-profile><james-l-goetz><apply>' "$managed_wp_log" || true)" -eq 0 ]] ||
   fail 'deployment applied over a managed James profile editor change'
-grep -Fq '<--path='"$remote_site"'><goetz-site><attorney-profile><--slug=james-l-goetz><--verify>' "$managed_wp_log" ||
+grep -Fq '<--path='"$remote_site"'><attorney-profile><james-l-goetz><verify>' "$managed_wp_log" ||
   fail 'deployment did not verify the managed James profile'
 run_remote "$remote_repo/scripts/release/verify-remote.sh" \
   --release-dir="$release_dir" --origin=https://goetzgoetz.kinsta.cloud >/dev/null
 printf '1\n' > "$remote_state/james-profile-state"
+
+# A manually deactivated but still-present runtime is also a valid deployment
+# starting point. The tracked eval-file must plan successfully and normal
+# activation must return goetz-site to the active inventory.
+present_inactive_plugins="$remote_state/.active-plugins-present-inactive"
+grep -Fvx 'goetz-site' "$remote_state/active-plugins" > "$present_inactive_plugins"
+mv "$present_inactive_plugins" "$remote_state/active-plugins"
+run_remote "$remote_repo/scripts/release/remote-backup.sh" \
+  --backup-id=contract-present-inactive --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
+present_inactive_backup="$remote_repo/__dev/kinsta-backups/contract-present-inactive"
+grep -Fqx $'wp-content/plugins/goetz-site\tpresent\tcode-plugin-goetz-site.tar.gz' \
+  "$present_inactive_backup/code-state.tsv" || fail 'present/inactive backup lost the plugin code root'
+! grep -Fqx 'goetz-site' "$present_inactive_backup/active-plugins.txt" ||
+  fail 'present/inactive backup unexpectedly recorded goetz-site as active'
+run_remote "$remote_repo/scripts/release/remote-apply.sh" \
+  --release-dir="$release_dir" --backup-id=contract-present-inactive >/dev/null
+grep -Fqx 'goetz-site' "$remote_state/active-plugins" ||
+  fail 'deployment did not reactivate the present/inactive goetz-site runtime'
 
 # A dangling managed root is neither safely present nor safely absent. Backup
 # discovery must reject it and must never publish a complete success receipt.

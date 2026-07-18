@@ -465,7 +465,6 @@ mapfile -t metadata < "$backup/BACKUP-METADATA"
 require_single_site
 [[ "$(wp --path="$site" option get home)" == "$staging" ]]
 [[ "$(wp --path="$site" option get siteurl)" == "$staging" ]]
-wp --path="$site" plugin is-active goetz-site
 scan_public_dumps
 
 preflight_file="$private/operations/.deploy-$release_sha-$backup_id.preflight.$$"
@@ -528,10 +527,32 @@ sync_release_root() {
   rsync --archive --delete-delay --checksum "$source/" "$target/"
 }
 
+attorney_profile_command() {
+  local slug="$1" mode="$2" bootstrap_file
+
+  case "$slug" in
+    james-l-goetz|gregory-w-goetz) ;;
+    *) die "attorney profile command received an invalid slug: $slug" ;;
+  esac
+  case "$mode" in
+    plan|apply|verify) ;;
+    *) die "attorney profile command received an invalid mode: $mode" ;;
+  esac
+
+  # During a first deployment goetz-site is not active yet. This tracked,
+  # manifest-verified eval-file loads it only for the current WP-CLI process so
+  # the guarded planner can run before activation or any database mutation.
+  bootstrap_file="$site/wp-content/plugins/goetz-site/includes/cli/attorney-profile-bootstrap.php"
+  [[ -f "$bootstrap_file" && ! -L "$bootstrap_file" ]] ||
+    die 'the attorney profile bootstrap file is missing or redirected'
+  GOETZ_ATTORNEY_SLUG="$slug" GOETZ_ATTORNEY_MODE="$mode" \
+    wp --path="$site" eval-file "$bootstrap_file"
+}
+
 preflight_attorney_profile() {
   local slug="$1" plan plan_status
 
-  plan="$(wp --path="$site" goetz-site attorney-profile --slug="$slug")"
+  plan="$(attorney_profile_command "$slug" plan)"
   plan_status="$(json_status "$plan" 'ready,noop,managed_modified,missing_image,conflict,migration_evidence_mismatch,version_conflict,unknown_profile,missing_page')"
   case "$plan_status" in
     ready|noop|managed_modified|missing_image) ;;
@@ -545,12 +566,12 @@ preflight_attorney_profile() {
 migrate_attorney_profile() {
   local slug="$1" plan plan_status post_plan post_status verification verification_status
 
-  plan="$(wp --path="$site" goetz-site attorney-profile --slug="$slug")"
+  plan="$(attorney_profile_command "$slug" plan)"
   plan_status="$(json_status "$plan" 'ready,noop,managed_modified,missing_image,conflict,migration_evidence_mismatch,version_conflict,unknown_profile,missing_page')"
   case "$plan_status" in
     ready|missing_image)
       database_mutation_started=1
-      wp --path="$site" goetz-site attorney-profile --slug="$slug" --apply
+      attorney_profile_command "$slug" apply
       ;;
     noop|managed_modified) ;;
     conflict|migration_evidence_mismatch|version_conflict|unknown_profile|missing_page)
@@ -559,10 +580,10 @@ migrate_attorney_profile() {
     *) die "attorney profile preview returned an invalid state: $slug" ;;
   esac
 
-  post_plan="$(wp --path="$site" goetz-site attorney-profile --slug="$slug")"
+  post_plan="$(attorney_profile_command "$slug" plan)"
   post_status="$(json_status "$post_plan" 'noop,managed_modified')"
 
-  verification="$(wp --path="$site" goetz-site attorney-profile --slug="$slug" --verify)"
+  verification="$(attorney_profile_command "$slug" verify)"
   verification_status="$(json_status "$verification" 'verified,managed_modified')"
   case "$post_status:$verification_status" in
     noop:verified|managed_modified:managed_modified) ;;
@@ -571,6 +592,9 @@ migrate_attorney_profile() {
 }
 
 sync_release_root "$release/payload/wp-content/plugins/goetz-site" "$site/wp-content/plugins/goetz-site"
+[[ -f "$site/wp-content/plugins/goetz-site/goetz-site.php" && ! -L "$site/wp-content/plugins/goetz-site/goetz-site.php" ]]
+[[ -f "$site/wp-content/plugins/goetz-site/includes/cli/attorney-profile-bootstrap.php" &&
+  ! -L "$site/wp-content/plugins/goetz-site/includes/cli/attorney-profile-bootstrap.php" ]]
 [[ "$(wp --path="$site" plugin get goetz-site --field=version)" == '1.0.0' ]]
 
 write_phase attorney_preflight
