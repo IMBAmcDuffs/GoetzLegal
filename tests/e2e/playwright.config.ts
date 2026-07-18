@@ -14,6 +14,7 @@ export default defineConfig({
     'gutenberg-existing-blocks.spec.ts',
     'gutenberg-welcome-block.spec.ts',
     'homepage-sections.spec.ts',
+    'homepage-template.spec.ts',
     'practice-animation.spec.ts',
   ],
   forbidOnly: true,
