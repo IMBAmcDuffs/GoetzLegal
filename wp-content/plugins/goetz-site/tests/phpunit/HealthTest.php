@@ -49,6 +49,19 @@ if (is_readable($functions_file)) {
 
 final class HealthTest extends TestCase
 {
+    /** @var array<int, string> */
+    private const STABLE_BLOCK_NAMES = [
+        'goetz/attorney-card',
+        'goetz/attorney-grid',
+        'goetz/cta',
+        'goetz/faq-list',
+        'goetz/hero',
+        'goetz/practice-area-item',
+        'goetz/practice-areas',
+        'goetz/resource-links',
+        'goetz/welcome',
+    ];
+
     private string $root = '';
 
     protected function setUp(): void
@@ -75,15 +88,7 @@ final class HealthTest extends TestCase
     public function test_missing_editor_bundle_is_a_non_fatal_critical_result(): void
     {
         self::assertTrue(function_exists('Goetz\\Site\\site_health_result'), 'The plugin Site Health check is missing.');
-        $stableNames = [
-            'goetz/attorney-card',
-            'goetz/attorney-grid',
-            'goetz/cta',
-            'goetz/faq-list',
-            'goetz/hero',
-            'goetz/resource-links',
-        ];
-        $result = site_health_result($stableNames, false);
+        $result = site_health_result(self::STABLE_BLOCK_NAMES, false);
 
         self::assertSame('critical', $result['status']);
         self::assertSame('goetz_site_runtime_assets', $result['test']);
@@ -92,28 +97,28 @@ final class HealthTest extends TestCase
     public function test_complete_runtime_and_editor_bundle_are_good(): void
     {
         self::assertTrue(function_exists('Goetz\\Site\\site_health_result'), 'The plugin Site Health check is missing.');
-        $stableNames = [
-            'goetz/attorney-card',
-            'goetz/attorney-grid',
-            'goetz/cta',
-            'goetz/faq-list',
-            'goetz/hero',
-            'goetz/resource-links',
-        ];
-        self::assertSame('good', site_health_result($stableNames, true)['status']);
+        self::assertSame('good', site_health_result(self::STABLE_BLOCK_NAMES, true)['status']);
     }
 
-    public function test_missing_attorney_grid_can_never_report_ready(): void
+    /**
+     * @dataProvider stableBlockProvider
+     */
+    public function test_every_stable_block_is_required(string $missingBlock): void
     {
-        $withoutAttorneyGrid = [
-            'goetz/attorney-card',
-            'goetz/cta',
-            'goetz/faq-list',
-            'goetz/hero',
-            'goetz/resource-links',
-        ];
+        $registeredNames = array_values(array_diff(self::STABLE_BLOCK_NAMES, [$missingBlock]));
 
-        self::assertSame('critical', site_health_result($withoutAttorneyGrid, true)['status']);
+        self::assertSame('critical', site_health_result($registeredNames, true)['status']);
+    }
+
+    /** @return array<string, array{string}> */
+    public function stableBlockProvider(): array
+    {
+        $cases = [];
+        foreach (self::STABLE_BLOCK_NAMES as $blockName) {
+            $cases[$blockName] = [$blockName];
+        }
+
+        return $cases;
     }
 
     public function test_site_health_uses_actual_wordpress_registry_state(): void
@@ -128,28 +133,14 @@ final class HealthTest extends TestCase
         ]);
         self::assertSame('critical', site_health_test()['status']);
 
-        $registry->setRegisteredNames([
-            'goetz/attorney-card',
-            'goetz/attorney-grid',
-            'goetz/cta',
-            'goetz/faq-list',
-            'goetz/hero',
-            'goetz/resource-links',
-        ]);
+        $registry->setRegisteredNames(self::STABLE_BLOCK_NAMES);
         self::assertSame('good', site_health_test()['status']);
     }
 
     public function test_unregistered_editor_handle_is_critical_even_when_build_files_exist(): void
     {
         Functions\when('wp_script_is')->justReturn(false);
-        WP_Block_Type_Registry::get_instance()->setRegisteredNames([
-            'goetz/attorney-card',
-            'goetz/attorney-grid',
-            'goetz/cta',
-            'goetz/faq-list',
-            'goetz/hero',
-            'goetz/resource-links',
-        ]);
+        WP_Block_Type_Registry::get_instance()->setRegisteredNames(self::STABLE_BLOCK_NAMES);
 
         self::assertSame('critical', site_health_test()['status']);
     }

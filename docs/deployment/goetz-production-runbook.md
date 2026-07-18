@@ -85,7 +85,7 @@ The release is uploaded to the commit-specific private directory and verified th
 
 Private uploads are resumable in one commit/backup-specific incoming directory. The incoming directory and payload destination are physically validated and rejected if any symlink is present before rsync receives the destination. The completed payload is checksum-verified and published with one directory rename; an existing verified release is safely reused. The shared remote mutation lock serializes backup, deployment, cutover, rollback, and read verification.
 
-Before the first runtime write, deployment verifies every source/target physical path, rejects symlinked parents or named roots, rejects multisite, verifies the complete release and backup packets, pre-extracts the recovery packet, records the current debug-log inode/offset, and writes a durable phase receipt. The remote application order is:
+Before the first runtime write, deployment verifies every source/target physical path, rejects symlinked parents or named roots, rejects multisite, verifies the complete release and backup packets, pre-extracts the recovery packet, and writes a durable phase receipt. It also establishes `wp-content/debug.log` as a normal regular-file checkpoint, safely creating an empty mode-`0600` file when it is initially absent, and records its inode, byte offset, and prefix SHA-256. The remote application order is:
 
 1. verify the release and coupled backup manifests;
 2. deploy and activate `goetz-site`;
@@ -95,11 +95,11 @@ Before the first runtime write, deployment verifies every source/target physical
 6. run homepage dry-run, apply, and second no-op;
 7. run strict SEO configuration twice and reindex Yoast;
 8. flush rewrites, object cache, and Kinsta page cache;
-9. reject only PHP fatal/parse errors written after the captured offset, while ignoring historical log entries;
-10. scan the full public tree for SQL/dump/release/secret artifacts and smoke all seven routes;
+9. reject any missing, symlinked, replaced, truncated, or prefix-rewritten debug checkpoint and reject PHP fatal/parse errors written after the captured offset;
+10. scan the full public tree, smoke all seven routes, then scan the same debug checkpoint again so request-generated fatal/parse errors cannot escape the gate;
 11. atomically publish the current-release and completed-operation receipts.
 
-If a command fails after runtime mutation begins, the same remote process restores the coupled code, uploads, database, activation/URL state, and caches while it still owns the mutation lock. It records either `auto_rollback_succeeded` or `auto_rollback_failed_manual_intervention_required`. A local transport error never starts a second racing rollback; inspect the durable receipt, then use the printed manager rollback command if manual recovery is required.
+If a command fails or HUP/INT/TERM interrupts the remote process after runtime mutation begins, the same remote process runs the recovery path exactly once while it still owns the mutation lock, restoring the coupled code, uploads, database, activation/URL state, and caches. It records either `auto_rollback_succeeded` or `auto_rollback_failed_manual_intervention_required`. A local transport error never starts a second racing rollback and does not prove whether the remote handler ran; treat the outcome as unknown, inspect the durable receipt, then use the printed manager rollback command if manual recovery is required.
 
 Complete the full local/remote route, editor, SEO, accessibility, and visual gates against the Kinsta staging origin before taking a cutover backup.
 
@@ -109,7 +109,39 @@ Complete the full local/remote route, editor, SEO, accessibility, and visual gat
   --origin=https://goetzgoetz.kinsta.cloud
 ```
 
-Remote verification holds a shared lock, requires the exact current-release digest, uses explicit `wp --path`, rejects multisite, and compares the complete file tree and SHA-256 hashes of all five deployed runtime roots with the private payload. Missing, unexpected, or changed runtime files all fail verification. It also verifies activation, checks only new debug-log bytes, scans the complete public tree, and smokes all seven routes. Every smoke may follow HTTPS redirects only when the effective URL remains the exact requested origin and route.
+Remote verification holds a shared lock, requires the exact current-release digest, uses explicit `wp --path`, rejects multisite, and compares the complete file tree and SHA-256 hashes of all five deployed runtime roots with the private payload. Missing, unexpected, or changed runtime files all fail verification. It also verifies activation, requires the debug-log inode/size/prefix checkpoint to remain continuous and its size to stay stable through each scan, rejects new fatal/parse bytes, scans the complete public tree, smokes all seven routes, and repeats the debug scan afterward. Every smoke may follow HTTPS redirects only when the effective URL remains the exact requested origin and route.
+
+Run the authenticated, non-mutating editor/settings acceptance gate separately. Use the staging origin before cutover and the production origin after cutover:
+
+```bash
+GOETZ_BASE_URL=https://goetzgoetz.kinsta.cloud \
+GOETZ_EXPECT_ORIGIN=https://goetzgoetz.kinsta.cloud \
+GOETZ_E2E_ALLOW_REMOTE=1 \
+./manager.sh test:e2e:auth \
+  production-read-only.spec.ts
+```
+
+The documented no-caller Tasks 18/20 path requires no operator-entered WordPress credential. It accepts exactly the dedicated `production-read-only.spec.ts` selector and rejects a missing, alternate, or additional Playwright argument before creating an account. With the already-unlocked isolated SSH agent, manager creates one `goetz_verify_<random>` administrator through remote WP-CLI, supplies its 256-bit password only on `--prompt=user_pass` standard input, sends the two credentials to the Playwright process on standard input, and keeps them out of arguments, files, artifacts, and output. The dedicated spec contains exactly two matching tests: they inspect the locked homepage tree and editable controls, leave the editor clean, render Site Settings without submitting its form, and compare the original read-only state after navigation. Explicit caller-provided credential pairs retain the focused authenticated-test compatibility path for controlled diagnostics; Tasks 18/20 use only the ephemeral dedicated selector.
+
+Before any Playwright dependency, state, or artifact path is created or permissioned, manager rejects a named directory or existing parent that is a symlink or non-directory. Treat that diagnostic as a local workspace-integrity failure; inspect and replace the redirected path rather than overriding the check.
+
+An EXIT/HUP/INT/TERM cleanup trap deletes the temporary account and requires a successful `wp user list --login=<exact-login> --format=count` result of `0`. Cleanup failure takes precedence over a browser failure, exits with status `70`, and prints only this credential-free warning:
+
+```text
+CRITICAL: temporary remote verification administrator cleanup failed; follow the emergency cleanup runbook immediately.
+```
+
+If that warning appears, do not rerun the gate. Using the same pinned Kinsta transport and explicit `/www/goetzgoetz_755/public` path, list administrators with `wp user list --role=administrator --fields=ID,user_login,user_email,user_registered --format=table`. Review only a login matching `^goetz_verify_[a-f0-9]{16}$` and the failed gate's time window. Delete that exact login with `wp user delete <exact-login> --yes`, then run `wp user list --login=<exact-login> --format=count` and require the exact output `0`. Never place the generated login or any credential in a ticket, receipt, shell history, or repository file.
+
+## Performance and CDN image delivery
+
+Run desktop and mobile Lighthouse evidence against the built local site and the warmed staging origin. Record FCP, LCP, CLS, TBT, accessibility, best-practices, and SEO, but do not treat a local simulated score as a production guarantee. A material regression, new blocking asset, missing image dimensions, or non-zero layout shift blocks release until investigated.
+
+The homepage hero remains a native WordPress Media Library attachment rendered through `wp_get_attachment_image()`. Keep its responsive `srcset`, explicit dimensions, `loading="eager"`, and `fetchpriority="high"`; desktop treats that image as the LCP element. Do not replace it with a plugin URL or unmanaged duplicate merely to improve an isolated audit.
+
+Before final staging performance verification, use authenticated MyKinsta to open **Sites > goetzgoetz > CDN > Image optimization Settings** and select **Lossless**. Kinsta's lossless mode creates CDN WebP variants for PNG images without modifying stored WordPress files or page HTML. This is an explicit MyKinsta operator action and must not be inferred from the presence of the CDN alone.
+
+After saving the setting, allow it to settle, warm the hero image with a browser that advertises WebP, and inspect the response. Require `ki-cache-type: CDN` and `ki-cf-cache-status: HIT`; `cf-polished` must show that image optimization processed the asset, and `content-type` must report the format actually delivered. If `cf-polished` is absent or the cache remains in an optimizing state, wait and retry before recording staging Lighthouse evidence. Recheck the same headers after domain cutover.
 
 ## Cutover
 
@@ -142,7 +174,7 @@ The command is read-only unless the exact `--apply` flag is present. It refuses 
 
 DNS and MyKinsta domain changes remain explicit operator actions. Do not infer authority or modify unrelated mail records. If authoritative DNS/MyKinsta access is unavailable, stop with staging verified and document the exact remaining web-record/domain action.
 
-If serialized URL replacement or either option write fails, cutover imports the pre-domain-cutover database, verifies the staging URLs, flushes rewrite rules and object cache, purges Kinsta cache, and scans the public tree before releasing the lock. It records `auto_rollback_succeeded` only when every recovery step passes; otherwise it records `auto_rollback_failed_manual_intervention_required`. Inspect the cutover phase receipt before retrying.
+If serialized URL replacement, either option write, strict SEO configuration, Yoast reindexing, or a later cutover step fails, cutover imports the pre-domain-cutover database, verifies the staging URLs, flushes rewrite rules and object cache, purges Kinsta cache, and scans the public tree before releasing the lock. HUP/INT/TERM uses that same recovery path exactly once. It records `auto_rollback_succeeded` only when every recovery step passes; otherwise it records `auto_rollback_failed_manual_intervention_required`. A transport failure leaves the remote result unknown, so inspect the cutover phase receipt before retrying.
 
 ## Rollback
 
@@ -167,7 +199,7 @@ Rollback dry-run executes the complete non-mutating preflight: checksum/schema v
 5. rewrite rules, WordPress object cache, and Kinsta page cache;
 6. all seven public routes.
 
-The apply path records every durable phase while holding the shared lock. A rollback failure records `rollback_failed_manual_intervention_required` and stops; it never recursively starts another restore.
+The apply path records every durable phase while holding the shared lock. A rollback failure or HUP/INT/TERM records `rollback_failed_manual_intervention_required`, removes its private extraction and preflight work, and stops; it never recursively starts another restore.
 
 If a public cutover also changed DNS, reverse only the reviewed web records through the authoritative provider when necessary. Record the backup ID, packet and manifest hashes, restored targets, URL state, DNS action, and seven-route result in the launch receipt.
 

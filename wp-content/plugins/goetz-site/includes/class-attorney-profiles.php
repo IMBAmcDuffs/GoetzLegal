@@ -294,8 +294,14 @@ final class Attorney_Profiles
             return ['status' => 'missing', 'post_id' => $post_id];
         }
 
+        $initial_fingerprint = self::post_fingerprint($post_id);
+        if ($initial_fingerprint === null || $initial_fingerprint['post_type'] !== 'page') {
+            return ['status' => 'missing', 'post_id' => $post_id];
+        }
+
+        $initial_content = $initial_fingerprint['post_content'];
         $desired_content = self::canonical_content($profile);
-        if ($post->post_content === $desired_content) {
+        if ($initial_content === $desired_content) {
             return ['status' => 'noop', 'post_id' => $post_id];
         }
 
@@ -303,32 +309,136 @@ final class Attorney_Profiles
             return ['status' => 'managed_modified', 'post_id' => $post_id];
         }
 
-        if (! self::matches_legacy_content($post->post_content, $profile)) {
+        if (! self::matches_legacy_content($initial_content, $profile)) {
             return ['status' => 'conflict', 'post_id' => $post_id];
         }
 
-        if (! metadata_exists('post', $post_id, self::BACKUP_META)) {
-            add_post_meta($post_id, self::BACKUP_META, $post->post_content, true);
+        $version_before = get_post_meta($post_id, self::VERSION_META, false);
+        $backup_meta_id = 0;
+        $backup_values = get_post_meta($post_id, self::BACKUP_META, false);
+        if ($backup_values === []) {
+            $added = add_post_meta($post_id, self::BACKUP_META, $initial_content, true);
+            if (! is_int($added) || $added < 1) {
+                return self::error_result($post_id, 'Could not protect the original attorney profile backup.');
+            }
+
+            $backup_meta_id = $added;
+            $backup = get_metadata_by_mid('post', $backup_meta_id);
+            if (! is_object($backup)
+                || (int) ($backup->post_id ?? 0) !== $post_id
+                || ($backup->meta_key ?? null) !== self::BACKUP_META
+                || ($backup->meta_value ?? null) !== $initial_content) {
+                $cleaned = self::remove_owned_backup($post_id, $backup_meta_id, $initial_content);
+                return self::error_result(
+                    $post_id,
+                    $cleaned
+                        ? 'Could not verify the original attorney profile backup.'
+                        : 'Could not verify the original attorney profile backup or clean it up safely.'
+                );
+            }
+        } elseif (count($backup_values) !== 1 || $backup_values[0] !== $initial_content) {
+            return self::error_result($post_id, 'The existing attorney profile backup does not match the exact original content.');
         }
 
-        wp_save_post_revision($post_id);
-        $updated = wp_update_post(
-            [
-                'ID'           => $post_id,
-                'post_content' => $desired_content,
-            ],
-            true
-        );
+        $revision = wp_save_post_revision($post_id);
+        if (is_wp_error($revision)) {
+            $cleaned = self::remove_owned_backup($post_id, $backup_meta_id, $initial_content);
+            return self::error_result(
+                $post_id,
+                'Could not save the attorney profile revision: ' . $revision->get_error_message()
+                    . ($cleaned ? '' : ' The owned backup could not be cleaned up safely.')
+            );
+        }
 
-        if (is_wp_error($updated)) {
+        $content_update = self::compare_and_swap_content(
+            $post_id,
+            $initial_content,
+            $desired_content
+        );
+        if ($content_update['status'] === 'conflict') {
+            $cleaned = self::remove_owned_backup($post_id, $backup_meta_id, $initial_content);
+            if (! $cleaned) {
+                return self::error_result(
+                    $post_id,
+                    'The attorney profile changed during its atomic update, and the owned backup could not be cleaned up safely.'
+                );
+            }
+
             return [
-                'status'  => 'error',
+                'status'  => 'conflict',
                 'post_id' => $post_id,
-                'error'   => $updated->get_error_message(),
+                'error'   => 'The attorney profile changed during its atomic update.',
             ];
         }
 
-        update_post_meta($post_id, self::VERSION_META, self::VERSION);
+        if ($content_update['status'] !== 'updated') {
+            $cleaned = self::remove_owned_backup($post_id, $backup_meta_id, $initial_content);
+            return self::error_result(
+                $post_id,
+                (string) ($content_update['error'] ?? 'Could not update the attorney profile content.')
+                    . ($cleaned ? '' : ' The owned backup could not be cleaned up safely.')
+            );
+        }
+
+        $owned_content = $content_update['fingerprint'];
+        $stored_fingerprint = self::post_fingerprint($post_id);
+        if (! self::fingerprint_owns_content($stored_fingerprint, $owned_content)) {
+            $rolled_back = self::restore_content_if_owned($post_id, $owned_content, $initial_content);
+            $cleaned = ! $rolled_back
+                || self::remove_owned_backup($post_id, $backup_meta_id, $initial_content);
+
+            if ($rolled_back && ! $cleaned) {
+                return self::error_result(
+                    $post_id,
+                    'Could not verify the updated attorney profile content; the content was restored, but the owned backup could not be cleaned up safely.'
+                );
+            }
+
+            return self::error_result(
+                $post_id,
+                $rolled_back
+                    ? 'Could not verify the updated attorney profile content.'
+                    : 'Could not verify the updated attorney profile content or restore the original safely.'
+            );
+        }
+
+        $version_updated = update_post_meta($post_id, self::VERSION_META, self::VERSION);
+        $owned_version_meta_id = is_int($version_updated) && $version_updated > 0
+            ? $version_updated
+            : 0;
+        $owned_version_verified = $owned_version_meta_id > 0
+            && self::metadata_row_matches(
+                $post_id,
+                $owned_version_meta_id,
+                self::VERSION_META,
+                self::VERSION
+            );
+        $version_values = get_post_meta($post_id, self::VERSION_META, false);
+        if ($version_updated === false
+            || ! $owned_version_verified
+            || count($version_values) !== 1
+            || (string) $version_values[0] !== (string) self::VERSION) {
+            if ($owned_version_verified) {
+                self::remove_owned_metadata_row(
+                    $post_id,
+                    $owned_version_meta_id,
+                    self::VERSION_META,
+                    self::VERSION
+                );
+            }
+            $version_restored = get_post_meta($post_id, self::VERSION_META, false) === $version_before;
+            $content_restored = $version_restored
+                && self::restore_content_if_owned($post_id, $owned_content, $initial_content);
+            $backup_cleaned = ! ($content_restored && $version_restored)
+                || self::remove_owned_backup($post_id, $backup_meta_id, $initial_content);
+
+            return self::error_result(
+                $post_id,
+                $content_restored && $version_restored && $backup_cleaned
+                    ? 'Could not verify the attorney profile migration version; the original state was restored.'
+                    : 'Could not verify the attorney profile migration version or restore the original state safely; concurrent state was preserved.'
+            );
+        }
 
         return ['status' => 'updated', 'post_id' => $post_id];
     }
@@ -357,12 +467,254 @@ final class Attorney_Profiles
             'layout'    => ['type' => 'default'],
         ];
 
-        return '<!-- wp:group ' . wp_json_encode($group_attributes, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' -->'
-            . '<div class="wp-block-group goetz-attorney-profile-section">'
-            . '<!-- wp:goetz/attorney-card ' . wp_json_encode($card_attributes, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ' /-->'
-            . '</div>'
-            . '<!-- /wp:group -->'
-            . '<!-- wp:goetz/cta /-->';
+        $card = [
+            'blockName'    => 'goetz/attorney-card',
+            'attrs'        => $card_attributes,
+            'innerBlocks'  => [],
+            'innerHTML'    => '',
+            'innerContent' => [],
+        ];
+
+        return serialize_blocks([
+            [
+                'blockName'    => 'core/group',
+                'attrs'        => $group_attributes,
+                'innerBlocks'  => [$card],
+                'innerHTML'    => '<div class="wp-block-group goetz-attorney-profile-section"></div>',
+                'innerContent' => [
+                    '<div class="wp-block-group goetz-attorney-profile-section">',
+                    null,
+                    '</div>',
+                ],
+            ],
+            [
+                'blockName'    => 'goetz/cta',
+                'attrs'        => [],
+                'innerBlocks'  => [],
+                'innerHTML'    => '',
+                'innerContent' => [],
+            ],
+        ]);
+    }
+
+    /**
+     * Read the migration target directly so a cached pre-mutation WP_Post
+     * cannot satisfy the final pre-update guard.
+     *
+     * @return array{post_content: string, post_type: string, post_status: string, post_name: string, post_title: string, post_modified: string, post_modified_gmt: string}|null
+     */
+    private static function post_fingerprint(int $post_id): ?array
+    {
+        global $wpdb;
+
+        $row = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT post_content, post_type, post_status, post_name, post_title, post_modified, post_modified_gmt
+                    FROM {$wpdb->posts} WHERE ID = %d LIMIT 1",
+                $post_id
+            ),
+            ARRAY_A
+        );
+        if (! is_array($row)) {
+            return null;
+        }
+
+        return [
+            'post_content'      => (string) $row['post_content'],
+            'post_type'         => (string) $row['post_type'],
+            'post_status'       => (string) $row['post_status'],
+            'post_name'         => (string) $row['post_name'],
+            'post_title'        => (string) $row['post_title'],
+            'post_modified'     => (string) $row['post_modified'],
+            'post_modified_gmt' => (string) $row['post_modified_gmt'],
+        ];
+    }
+
+    /**
+     * Atomically replace only post_content when it still contains the exact
+     * bytes inspected by this invocation. No omitted post fields are written.
+     *
+     * @return array{
+     *   status: string,
+     *   fingerprint?: array{post_content: string, post_modified: string, post_modified_gmt: string},
+     *   error?: string
+     * }
+     */
+    private static function compare_and_swap_content(
+        int $post_id,
+        string $expected_content,
+        string $replacement_content
+    ): array {
+        global $wpdb;
+
+        $modified = current_time('mysql');
+        $modified_gmt = current_time('mysql', true);
+        $query = $wpdb->prepare(
+            "UPDATE {$wpdb->posts}
+                SET post_content = %s, post_modified = %s, post_modified_gmt = %s
+                WHERE ID = %d
+                  AND post_type = 'page'
+                  AND BINARY post_content = BINARY %s",
+            $replacement_content,
+            $modified,
+            $modified_gmt,
+            $post_id,
+            $expected_content
+        );
+        if (! is_string($query)) {
+            return [
+                'status' => 'error',
+                'error'  => 'Could not prepare the atomic attorney profile content update.',
+            ];
+        }
+
+        $updated = $wpdb->query($query);
+        clean_post_cache($post_id);
+        if ($updated === false || $updated > 1) {
+            return [
+                'status' => 'error',
+                'error'  => 'The database rejected the atomic attorney profile content update.',
+            ];
+        }
+        if ($updated === 0) {
+            return ['status' => 'conflict'];
+        }
+
+        return [
+            'status'      => 'updated',
+            'fingerprint' => [
+                'post_content'      => $replacement_content,
+                'post_modified'     => $modified,
+                'post_modified_gmt' => $modified_gmt,
+            ],
+        ];
+    }
+
+    /**
+     * @param array<string, string>|null $current
+     * @param array{post_content: string, post_modified: string, post_modified_gmt: string} $owned
+     */
+    private static function fingerprint_owns_content(?array $current, array $owned): bool
+    {
+        return $current !== null
+            && $current['post_type'] === 'page'
+            && $current['post_content'] === $owned['post_content']
+            && $current['post_modified'] === $owned['post_modified']
+            && $current['post_modified_gmt'] === $owned['post_modified_gmt'];
+    }
+
+    /**
+     * Verify all ownership fields returned by get_metadata_by_mid().
+     *
+     * @param mixed $expected_value
+     */
+    private static function metadata_row_matches(
+        int $post_id,
+        int $meta_id,
+        string $meta_key,
+        $expected_value
+    ): bool {
+        $meta = get_metadata_by_mid('post', $meta_id);
+        return is_object($meta)
+            && (int) ($meta->post_id ?? 0) === $post_id
+            && ($meta->meta_key ?? null) === $meta_key
+            && (string) ($meta->meta_value ?? '') === (string) $expected_value;
+    }
+
+    /**
+     * Delete only a metadata row whose complete identity still proves it was
+     * created by this migration, then verify that the row is gone.
+     *
+     * @param mixed $expected_value
+     */
+    private static function remove_owned_metadata_row(
+        int $post_id,
+        int $meta_id,
+        string $meta_key,
+        $expected_value
+    ): bool {
+        if ($meta_id < 1) {
+            return true;
+        }
+
+        $meta = get_metadata_by_mid('post', $meta_id);
+        if (! is_object($meta)) {
+            return true;
+        }
+        if (! self::metadata_row_matches($post_id, $meta_id, $meta_key, $expected_value)) {
+            return false;
+        }
+
+        delete_metadata_by_mid('post', $meta_id);
+        return ! is_object(get_metadata_by_mid('post', $meta_id));
+    }
+
+    /**
+     * Remove only the exact backup row created by the current migration.
+     */
+    private static function remove_owned_backup(int $post_id, int $meta_id, string $expected_content): bool
+    {
+        return self::remove_owned_metadata_row(
+            $post_id,
+            $meta_id,
+            self::BACKUP_META,
+            $expected_content
+        );
+    }
+
+    /**
+     * Restore only the content bytes and timestamps that this invocation can
+     * still prove it owns. A concurrent editor mutation makes this a no-op.
+     *
+     * @param array{post_content: string, post_modified: string, post_modified_gmt: string} $owned
+     */
+    private static function restore_content_if_owned(
+        int $post_id,
+        array $owned,
+        string $original_content
+    ): bool {
+        global $wpdb;
+
+        $modified = current_time('mysql');
+        $modified_gmt = current_time('mysql', true);
+        $query = $wpdb->prepare(
+            "UPDATE {$wpdb->posts}
+                SET post_content = %s, post_modified = %s, post_modified_gmt = %s
+                WHERE ID = %d
+                  AND post_type = 'page'
+                  AND BINARY post_content = BINARY %s
+                  AND post_modified = %s
+                  AND post_modified_gmt = %s",
+            $original_content,
+            $modified,
+            $modified_gmt,
+            $post_id,
+            $owned['post_content'],
+            $owned['post_modified'],
+            $owned['post_modified_gmt']
+        );
+        if (! is_string($query)) {
+            return false;
+        }
+
+        $restored = $wpdb->query($query);
+        clean_post_cache($post_id);
+        $after = self::post_fingerprint($post_id);
+
+        return $restored === 1
+            && $after !== null
+            && $after['post_type'] === 'page'
+            && $after['post_content'] === $original_content
+            && $after['post_modified'] === $modified
+            && $after['post_modified_gmt'] === $modified_gmt;
+    }
+
+    /**
+     * @return array{status: string, post_id: int, error: string}
+     */
+    private static function error_result(int $post_id, string $error): array
+    {
+        return ['status' => 'error', 'post_id' => $post_id, 'error' => $error];
     }
 
     /**

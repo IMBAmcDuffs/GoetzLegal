@@ -39,7 +39,7 @@ describe('Resource Links editor', () => {
     { heading: 'Agencies', links: [] },
   ];
 
-  test('renders current nested content and reflects legacy new-tab behavior', () => {
+  test('renders current nested content and treats legacy links as same-tab', () => {
     const setAttributes = jest.fn();
     const tree = ResourceLinksEdit({ attributes: { groups }, setAttributes });
 
@@ -48,7 +48,7 @@ describe('Resource Links editor', () => {
       'Legacy court'
     );
     expect(findByLabel(tree, 'Resource group 1 link 1 destination').props.newTab).toBe(
-      true
+      false
     );
     expect(findByLabel(tree, 'Resource group 1 link 2 destination').props.newTab).toBe(
       false

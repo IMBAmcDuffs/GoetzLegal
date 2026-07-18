@@ -128,20 +128,6 @@ function goetz_legal_nav_items(): array
 }
 
 /**
- * Enqueue Google Fonts. The rebuild only uses Roboto, matching the live site.
- */
-function goetz_legal_enqueue_fonts(): void
-{
-    wp_enqueue_style(
-        'goetz-legal-google-fonts',
-        'https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap',
-        [],
-        null
-    );
-}
-add_action('wp_enqueue_scripts', 'goetz_legal_enqueue_fonts');
-
-/**
  * Redirect the imported source homepage slug to the canonical front page.
  */
 function goetz_legal_redirect_home_slug(): void
@@ -193,21 +179,31 @@ add_action('widgets_init', 'goetz_legal_widgets_init');
 // =========================================================================
 
 /**
- * Add resource hints for external origins (preconnect / dns-prefetch).
- *
- * @param array<int, array{href: string, crossorigin?: string}> $hints
- * @param string $relation_type
- * @return array<int, array{href: string, crossorigin?: string}>
+ * Preload the hash-named local Roboto asset emitted by Vite.
  */
-function goetz_legal_resource_hints(array $hints, string $relation_type): array
+function goetz_legal_preload_font(): void
 {
-    if ($relation_type === 'preconnect') {
-        $hints[] = ['href' => 'https://fonts.googleapis.com', 'crossorigin' => 'anonymous'];
-        $hints[] = ['href' => 'https://fonts.gstatic.com', 'crossorigin' => 'anonymous'];
+    $manifest_path = get_theme_file_path('dist/.vite/manifest.json');
+    if (! is_readable($manifest_path)) {
+        return;
     }
-    return $hints;
+
+    $manifest = json_decode((string) file_get_contents($manifest_path), true);
+    $font_file = is_array($manifest)
+        ? ($manifest['resources/fonts/roboto-latin-300-700.woff2']['file'] ?? '')
+        : '';
+    if (! is_string($font_file)
+        || ! preg_match('#\Aassets/[A-Za-z0-9._-]+\.woff2\z#', $font_file)
+    ) {
+        return;
+    }
+
+    printf(
+        '<link rel="preload" href="%s" as="font" type="font/woff2" crossorigin="anonymous">' . "\n",
+        esc_url(get_theme_file_uri('dist/' . $font_file))
+    );
 }
-add_filter('wp_resource_hints', 'goetz_legal_resource_hints', 10, 2);
+add_action('wp_head', 'goetz_legal_preload_font', 1);
 
 /**
  * Remove WordPress emoji scripts and styles for faster page loads.

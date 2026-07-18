@@ -91,10 +91,39 @@ smoke_exact_route() {
   [[ "$effective" == "$origin$route" ]] ||
     die "effective URL escaped the exact requested route: $route"
 }
+verify_debug_checkpoint() {
+  local current_inode current_size current_prefix_hash final_inode final_size final_prefix_hash
+  [[ -f "$debug_file" && ! -L "$debug_file" ]] ||
+    die 'debug-log checkpoint is missing or redirected'
+  current_inode="$(stat -c %i "$debug_file")"
+  current_size="$(stat -c %s "$debug_file")"
+  [[ "$current_inode" == "$recorded_inode" ]] ||
+    die 'debug-log checkpoint inode differs from the deployed release receipt'
+  (( current_size >= recorded_offset )) ||
+    die 'debug-log checkpoint size regressed after deployment'
+  current_prefix_hash="$(head -c "$recorded_offset" "$debug_file" | sha256sum | cut -d' ' -f1)"
+  [[ "$current_prefix_hash" == "$recorded_prefix_hash" ]] ||
+    die 'debug-log checkpoint prefix differs from the deployed release receipt'
+  if (( current_size > recorded_offset )) &&
+    tail -c "+$((recorded_offset + 1))" "$debug_file" | grep -Eq 'PHP (Fatal|Parse) error'; then
+    die 'a PHP fatal or parse error was written after deployment began'
+  fi
+  [[ -f "$debug_file" && ! -L "$debug_file" ]] ||
+    die 'debug-log checkpoint disappeared while it was scanned'
+  final_inode="$(stat -c %i "$debug_file")"
+  final_size="$(stat -c %s "$debug_file")"
+  [[ "$final_inode" == "$recorded_inode" ]] ||
+    die 'debug-log checkpoint inode changed while it was scanned'
+  [[ "$final_size" == "$current_size" ]] ||
+    die 'debug-log checkpoint size changed while it was scanned'
+  final_prefix_hash="$(head -c "$recorded_offset" "$debug_file" | sha256sum | cut -d' ' -f1)"
+  [[ "$final_prefix_hash" == "$recorded_prefix_hash" ]] ||
+    die 'debug-log checkpoint prefix changed while it was scanned'
+}
 [[ "$release" == "/www/goetzgoetz_755/private/releases/$release_sha" ]]
 [[ "$release_sha" =~ ^[0-9a-f]{40}$ && "$release_digest" =~ ^[0-9a-f]{64}$ ]]
 case "$origin" in 'https://goetzgoetz.kinsta.cloud'|'https://goetzlegal.com') ;; *) die 'origin is not approved' ;; esac
-for command_name in wp sha256sum readlink flock find grep awk sort stat tail curl cmp xargs; do
+for command_name in wp sha256sum readlink flock find grep awk sort stat head tail curl cmp xargs; do
   command -v "$command_name" >/dev/null 2>&1 || die "required command unavailable: $command_name"
 done
 assert_dir "$site" '/www/goetzgoetz_755/public'
@@ -115,7 +144,7 @@ flock -s -n 9 || die 'a release mutation is in progress'
 current="$private/state/current-release"
 [[ -f "$current" && ! -L "$current" ]]
 mapfile -t current_lines < "$current"
-(( ${#current_lines[@]} == 7 )) || die 'current release receipt schema is invalid'
+(( ${#current_lines[@]} == 8 )) || die 'current release receipt schema is invalid'
 [[ "${current_lines[0]}" == 'schema_version=1' ]]
 [[ "${current_lines[1]}" == "release_commit=$release_sha" ]]
 [[ "${current_lines[2]}" == "release_manifest_sha256=$release_digest" ]]
@@ -123,8 +152,10 @@ mapfile -t current_lines < "$current"
 [[ "${current_lines[4]}" =~ ^deployed_utc=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]
 recorded_inode="${current_lines[5]#debug_log_inode=}"
 recorded_offset="${current_lines[6]#debug_log_offset=}"
-[[ "${current_lines[5]}" == "debug_log_inode=$recorded_inode" && "$recorded_inode" =~ ^(none|[0-9]+)$ ]]
+recorded_prefix_hash="${current_lines[7]#debug_log_prefix_sha256=}"
+[[ "${current_lines[5]}" == "debug_log_inode=$recorded_inode" && "$recorded_inode" =~ ^[0-9]+$ ]]
 [[ "${current_lines[6]}" == "debug_log_offset=$recorded_offset" && "$recorded_offset" =~ ^[0-9]+$ ]]
+[[ "${current_lines[7]}" == "debug_log_prefix_sha256=$recorded_prefix_hash" && "$recorded_prefix_hash" =~ ^[0-9a-f]{64}$ ]]
 
 for runtime_root in \
   wp-content/themes/goetz-legal \
@@ -154,20 +185,11 @@ test -s "$site/wp-content/plugins/goetz-site/build/index.asset.php"
 scan_public_dumps
 
 debug_file="$site/wp-content/debug.log"
-if [[ -f "$debug_file" && ! -L "$debug_file" ]]; then
-  current_inode="$(stat -c %i "$debug_file")"
-  current_size="$(stat -c %s "$debug_file")"
-  offset="$recorded_offset"
-  if [[ "$recorded_inode" == 'none' || "$recorded_inode" != "$current_inode" ]] || (( current_size < offset )); then offset=0; fi
-  if (( current_size > offset )); then
-    if tail -c "+$((offset + 1))" "$debug_file" | grep -Eq 'PHP (Fatal|Parse) error'; then
-      die 'a PHP fatal or parse error was written after deployment began'
-    fi
-  fi
-fi
+verify_debug_checkpoint
 for route in '/' '/james-l-goetz/' '/gregory-w-goetz/' '/staff/' '/questions/' '/links/' '/contact/'; do
   smoke_exact_route "$route"
 done
+verify_debug_checkpoint
 printf 'remote_verification=passed\nrelease_commit=%s\nrelease_manifest_sha256=%s\norigin=%s\n' \
   "$release_sha" "$release_digest" "$origin"
 REMOTE

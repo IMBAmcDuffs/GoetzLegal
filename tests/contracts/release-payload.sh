@@ -461,6 +461,10 @@ if [[ -f "$record_root/disconnect-after-apply" && "$input" == *'GOETZ_REMOTE_REL
   find "$record_root/disconnect-after-apply" -delete
   exit 255
 fi
+if [[ -f "$record_root/disconnect-after-cutover" && "$input" == *'GOETZ_REMOTE_CUTOVER'* ]]; then
+  find "$record_root/disconnect-after-cutover" -delete
+  exit 255
+fi
 exit "$remote_status"
 SSH
 
@@ -549,6 +553,11 @@ case "$command_name" in
       sed -n 's/^homepage=//p' "$path" > "$state/homepage-applied"
       sed -n 's/^seo=//p' "$path" > "$state/seo-applied"
       sed -n 's/^marker=//p' "$path" > "$state/db-marker"
+      if [[ -f '__RECORD_ROOT__/signal-next-rollback-db-import' ]]; then
+        find '__RECORD_ROOT__/signal-next-rollback-db-import' -delete
+        kill -TERM "$PPID"
+        sleep 0.05
+      fi
     else exit 82; fi
     ;;
   theme)
@@ -579,6 +588,11 @@ case "$command_name" in
         for plugin in "$@"; do printf '%s\n' "$plugin" >> "$temporary"; done
         awk 'NF && !seen[$0]++' "$temporary" | LC_ALL=C sort > "$state/active-plugins"
         find "$temporary" -delete
+        if [[ -f '__RECORD_ROOT__/signal-next-deploy-plugin-activate' ]]; then
+          find '__RECORD_ROOT__/signal-next-deploy-plugin-activate' -delete
+          kill -TERM "$PPID"
+          sleep 0.05
+        fi
         ;;
       *) exit 85 ;;
     esac
@@ -593,6 +607,21 @@ case "$command_name" in
         if [[ "$(cat "$state/homepage-applied")" == 1 ]]; then printf '{"status":"noop"}\n'; else printf '1\n' > "$state/homepage-applied"; printf '{"status":"updated"}\n'; fi
       fi
     elif [[ "$group" == seo && "$action" == configure ]]; then
+      if [[ -f '__RECORD_ROOT__/force-cutover-seo-second-configured' ]]; then
+        seo_count=0
+        [[ ! -s '__RECORD_ROOT__/cutover-seo-count' ]] || read -r seo_count < '__RECORD_ROOT__/cutover-seo-count'
+        if (( seo_count == 0 )); then
+          printf '1\n' > '__RECORD_ROOT__/cutover-seo-count'
+        else
+          find '__RECORD_ROOT__/force-cutover-seo-second-configured' '__RECORD_ROOT__/cutover-seo-count' -delete
+        fi
+        printf '{"status":"configured"}\n'
+        exit 0
+      fi
+      if [[ -f '__RECORD_ROOT__/fail-next-cutover-seo' ]]; then
+        find '__RECORD_ROOT__/fail-next-cutover-seo' -delete
+        exit 47
+      fi
       if [[ "$(cat "$state/seo-applied")" == 1 ]]; then printf '{"status":"noop"}\n'; else printf '1\n' > "$state/seo-applied"; printf '{"status":"configured"}\n'; fi
     else exit 86; fi
     ;;
@@ -606,6 +635,11 @@ case "$command_name" in
       fi
       [[ "$(cat "$state/home")" == "$from" ]] && printf '%s\n' "$to" > "$state/home"
       [[ "$(cat "$state/siteurl")" == "$from" ]] && printf '%s\n' "$to" > "$state/siteurl"
+      if [[ -f '__RECORD_ROOT__/signal-next-cutover-search-replace' ]]; then
+        find '__RECORD_ROOT__/signal-next-cutover-search-replace' -delete
+        kill -TERM "$PPID"
+        sleep 0.05
+      fi
     fi
     ;;
   yoast) ;;
@@ -614,6 +648,33 @@ case "$command_name" in
     if [[ -f "$failure_marker" ]]; then
       find "$failure_marker" -delete
       exit 46
+    fi
+    if [[ "$command_name" == kinsta && -f '__RECORD_ROOT__/rotate-debug-log' ]]; then
+      mv '__REMOTE_SITE__/wp-content/debug.log' '__RECORD_ROOT__/debug-log-before-rotation'
+      printf 'PHP Fatal error: replacement log must be scanned\n' > '__REMOTE_SITE__/wp-content/debug.log'
+      truncate -s "$(stat -c %s '__RECORD_ROOT__/debug-log-before-rotation')" '__REMOTE_SITE__/wp-content/debug.log'
+      find '__RECORD_ROOT__/rotate-debug-log' -delete
+    fi
+    if [[ "$command_name" == kinsta && -f '__RECORD_ROOT__/rewrite-debug-log-prefix' ]]; then
+      cp '__REMOTE_SITE__/wp-content/debug.log' '__RECORD_ROOT__/debug-log-before-prefix-rewrite'
+      original_size="$(stat -c %s '__REMOTE_SITE__/wp-content/debug.log')"
+      printf 'PHP Fatal error: rewritten prefix must be scanned\n' > '__REMOTE_SITE__/wp-content/debug.log'
+      truncate -s "$original_size" '__REMOTE_SITE__/wp-content/debug.log'
+      find '__RECORD_ROOT__/rewrite-debug-log-prefix' -delete
+    fi
+    if [[ "$command_name" == kinsta && -f '__RECORD_ROOT__/rotate-debug-log-benign' ]]; then
+      mv '__REMOTE_SITE__/wp-content/debug.log' '__RECORD_ROOT__/debug-log-before-benign-rotation'
+      cp '__RECORD_ROOT__/debug-log-before-benign-rotation' '__REMOTE_SITE__/wp-content/debug.log'
+      find '__RECORD_ROOT__/rotate-debug-log-benign' -delete
+    fi
+    if [[ "$command_name" == kinsta && -f '__RECORD_ROOT__/remove-debug-log' ]]; then
+      mv '__REMOTE_SITE__/wp-content/debug.log' '__RECORD_ROOT__/debug-log-before-removal'
+      find '__RECORD_ROOT__/remove-debug-log' -delete
+    fi
+    if [[ "$command_name" == kinsta && -f '__RECORD_ROOT__/symlink-debug-log' ]]; then
+      mv '__REMOTE_SITE__/wp-content/debug.log' '__RECORD_ROOT__/debug-log-before-symlink'
+      ln -s '__RECORD_ROOT__/debug-log-before-symlink' '__REMOTE_SITE__/wp-content/debug.log'
+      find '__RECORD_ROOT__/symlink-debug-log' -delete
     fi
     ;;
   *) printf 'unsupported fake wp command: %s\n' "$command_name" >&2; exit 87 ;;
@@ -650,6 +711,10 @@ for (( index=0; index < ${#arguments[@]}; index++ )); do
 done
 (( connect_timeout == 1 )) || { printf 'curl contract: missing exact --connect-timeout 10\n' >&2; exit 64; }
 (( max_time == 1 )) || { printf 'curl contract: missing exact --max-time 30\n' >&2; exit 64; }
+if [[ -f '__RECORD_ROOT__/append-debug-fatal-once' ]]; then
+  printf 'PHP Fatal error: route smoke generated this failure\n' >> '__REMOTE_SITE__/wp-content/debug.log'
+  find '__RECORD_ROOT__/append-debug-fatal-once' -delete
+fi
 if (( write_effective == 1 )); then
   effective="$url"
   if [[ -f '__RECORD_ROOT__/curl-effective-once' ]]; then
@@ -659,6 +724,26 @@ if (( write_effective == 1 )); then
   printf '%s' "$effective"
 fi
 CURL
+
+cat > "$remote_bin/tail" <<'TAIL'
+#!/usr/bin/env bash
+set -euo pipefail
+status=0
+/usr/bin/tail "$@" || status=$?
+marker='__RECORD_ROOT__/append-debug-fatal-after-tail-count'
+if [[ -f "$marker" ]]; then
+  read -r remaining < "$marker"
+  [[ "$remaining" =~ ^[1-9][0-9]*$ ]]
+  remaining=$((remaining - 1))
+  if (( remaining == 0 )); then
+    printf 'PHP Fatal error: appended after the final tail read\n' >> '__REMOTE_SITE__/wp-content/debug.log'
+    find "$marker" -delete
+  else
+    printf '%s\n' "$remaining" > "$marker"
+  fi
+fi
+exit "$status"
+TAIL
 
 cat > "$remote_bin/flock" <<'FLOCK'
 #!/usr/bin/env bash
@@ -673,12 +758,13 @@ fi
 exec /usr/bin/flock "$@"
 FLOCK
 
-for generated in ssh-add ssh rsync wp php curl flock; do
+for generated in ssh-add ssh rsync wp php curl tail flock; do
   sed -i \
     -e "s|__RECORD_ROOT__|$record_root|g" \
     -e "s|__REMOTE_ROOT__|$remote_root|g" \
     -e "s|__REMOTE_BIN__|$remote_bin|g" \
     -e "s|__REMOTE_STATE__|$remote_state|g" \
+    -e "s|__REMOTE_SITE__|$remote_site|g" \
     -e "s|__FAKE_HOME__|$fixture/home|g" \
     "$remote_bin/$generated"
   chmod 700 "$remote_bin/$generated"
@@ -722,6 +808,48 @@ ssh_after_local_parent="$(cat "$record_root/ssh-count" 2>/dev/null || printf '0\
   fail 'remote backup created storage through a symlinked local parent'
 unlink "$remote_repo/__dev"
 mv "$fixture/remote-repo-dev-real" "$remote_repo/__dev"
+
+# Deployments created before the append-only debug-prefix checkpoint have a
+# strictly validated seven-field current-release receipt. A pre-deployment
+# backup must accept and preserve that legacy state so automatic recovery can
+# restore it and the operator can retry. The stronger pre-domain-cutover gate,
+# however, must require the new eight-field receipt.
+mkdir -p "$remote_private/state"
+legacy_current_release="$fixture/legacy-current-release"
+cat > "$legacy_current_release" <<LEGACY_CURRENT_RELEASE
+schema_version=1
+release_commit=$release_sha
+release_manifest_sha256=$first_manifest_hash
+backup_id=legacy-contract
+deployed_utc=2026-07-17T12:00:00Z
+debug_log_inode=none
+debug_log_offset=0
+LEGACY_CURRENT_RELEASE
+cp "$legacy_current_release" "$remote_private/state/current-release"
+run_remote "$remote_repo/scripts/release/remote-backup.sh" \
+  --backup-id=contract-legacy-recovery --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
+legacy_recovery_backup="$remote_repo/__dev/kinsta-backups/contract-legacy-recovery"
+cmp -s "$legacy_current_release" "$legacy_recovery_backup/previous-current-release" ||
+  fail 'pre-deployment backup did not preserve a valid legacy current-release receipt'
+printf 'wp-content/themes/goetz-legal\n' > "$record_root/fail-source-once"
+if run_remote "$remote_repo/scripts/release/remote-apply.sh" \
+  --release-dir="$release_dir" --backup-id=contract-legacy-recovery >/dev/null 2>&1; then
+  fail 'legacy receipt recovery fixture did not inject a deployment failure'
+fi
+cmp -s "$legacy_current_release" "$remote_private/state/current-release" ||
+  fail 'automatic recovery did not restore the legacy current-release receipt'
+assert_contains "$remote_private/operations/deploy-$release_sha-contract-legacy-recovery.status" \
+  'phase=auto_rollback_succeeded'
+sed -i 's/^debug_log_offset=0$/debug_log_offset=unsafe/' "$remote_private/state/current-release"
+if run_remote "$remote_repo/scripts/release/remote-backup.sh" \
+  --backup-id=contract-invalid-legacy --purpose=pre-deployment --release-dir="$release_dir" >/dev/null 2>&1; then
+  fail 'pre-deployment backup accepted a malformed legacy current-release receipt'
+fi
+cp "$legacy_current_release" "$remote_private/state/current-release"
+if run_remote "$remote_repo/scripts/release/remote-backup.sh" \
+  --backup-id=contract-legacy-cutover --purpose=pre-domain-cutover --release-dir="$release_dir" >/dev/null 2>&1; then
+  fail 'pre-domain-cutover backup accepted a legacy current-release receipt'
+fi
 
 # The first packet proves that an empty active-plugin inventory is legitimate
 # and couples the intended release, staging origin, purpose, and timestamp.
@@ -781,6 +909,32 @@ fi
 unlink "$remote_site/wp-content/uploads"
 mv "$remote_site/wp-content/uploads.saved-for-dangling-backup" "$remote_site/wp-content/uploads"
 
+# A packet that cannot be restored must never be certified. Symlinks and other
+# special entries are unsupported in both uploads and managed runtime roots.
+mkdir -p "$fixture/backup-symlink-target"
+printf 'symlink target sentinel\n' > "$fixture/backup-symlink-target/sentinel"
+ln -s "$fixture/backup-symlink-target" "$remote_site/wp-content/uploads/redirected-upload"
+if run_remote "$remote_repo/scripts/release/remote-backup.sh" \
+  --backup-id=contract-upload-symlink --purpose=pre-deployment --release-dir="$release_dir" >/dev/null 2>&1; then
+  fail 'remote backup certified uploads containing a symbolic link'
+fi
+upload_symlink_receipt="$remote_private/operations/backup-contract-upload-symlink.status"
+if [[ -f "$upload_symlink_receipt" ]] && grep -Fq 'phase=complete' "$upload_symlink_receipt"; then
+  fail 'remote backup wrote a complete receipt for symlinked uploads'
+fi
+unlink "$remote_site/wp-content/uploads/redirected-upload"
+
+ln -s "$fixture/backup-symlink-target" "$remote_site/wp-content/plugins/goetz-site/redirected-code"
+if run_remote "$remote_repo/scripts/release/remote-backup.sh" \
+  --backup-id=contract-code-symlink --purpose=pre-deployment --release-dir="$release_dir" >/dev/null 2>&1; then
+  fail 'remote backup certified a managed code root containing a symbolic link'
+fi
+code_symlink_receipt="$remote_private/operations/backup-contract-code-symlink.status"
+if [[ -f "$code_symlink_receipt" ]] && grep -Fq 'phase=complete' "$code_symlink_receipt"; then
+  fail 'remote backup wrote a complete receipt for a symlinked managed code root'
+fi
+unlink "$remote_site/wp-content/plugins/goetz-site/redirected-code"
+
 # HTTPS status alone is insufficient: every smoke must prove that redirects
 # remained on the exact approved origin and exact requested route.
 printf 'https://redirected.example.invalid/\n' > "$record_root/curl-effective-once"
@@ -828,6 +982,74 @@ if run_remote "$remote_repo/scripts/release/verify-remote.sh" \
   fail 'remote verifier accepted a fatal error appended after deployment'
 fi
 truncate -s "$debug_size_before" "$remote_site/wp-content/debug.log"
+
+debug_verify_original="$fixture/debug-log-before-verify-prefix-rewrite"
+cp "$remote_site/wp-content/debug.log" "$debug_verify_original"
+debug_verify_inode="$(stat -c %i "$remote_site/wp-content/debug.log")"
+printf 'PHP Fatal error: verifier must reject rewritten prefix\n' > "$remote_site/wp-content/debug.log"
+truncate -s "$debug_size_before" "$remote_site/wp-content/debug.log"
+if run_remote "$remote_repo/scripts/release/verify-remote.sh" \
+  --release-dir="$release_dir" --origin=https://goetzgoetz.kinsta.cloud >/dev/null 2>&1; then
+  fail 'remote verifier accepted a fatal error hidden by same-inode debug-log prefix rewrite'
+fi
+[[ "$(stat -c %i "$remote_site/wp-content/debug.log")" == "$debug_verify_inode" ]] ||
+  fail 'remote verifier prefix fixture did not preserve the debug-log inode'
+cp "$debug_verify_original" "$remote_site/wp-content/debug.log"
+
+# The append-only checkpoint is an identity-and-prefix promise, not merely an
+# offset hint. Even a byte-identical rotation, removal, or symlink replacement
+# destroys continuity and must fail closed.
+debug_verify_rotation_original="$fixture/debug-log-before-verify-benign-rotation"
+mv "$remote_site/wp-content/debug.log" "$debug_verify_rotation_original"
+cp "$debug_verify_rotation_original" "$remote_site/wp-content/debug.log"
+if run_remote "$remote_repo/scripts/release/verify-remote.sh" \
+  --release-dir="$release_dir" --origin=https://goetzgoetz.kinsta.cloud >/dev/null 2>&1; then
+  fail 'remote verifier accepted a byte-identical rotated debug log'
+fi
+find "$remote_site/wp-content/debug.log" -delete
+mv "$debug_verify_rotation_original" "$remote_site/wp-content/debug.log"
+
+debug_verify_missing_original="$fixture/debug-log-before-verify-removal"
+mv "$remote_site/wp-content/debug.log" "$debug_verify_missing_original"
+if run_remote "$remote_repo/scripts/release/verify-remote.sh" \
+  --release-dir="$release_dir" --origin=https://goetzgoetz.kinsta.cloud >/dev/null 2>&1; then
+  fail 'remote verifier accepted a missing debug-log checkpoint'
+fi
+mv "$debug_verify_missing_original" "$remote_site/wp-content/debug.log"
+
+debug_verify_symlink_original="$fixture/debug-log-before-verify-symlink"
+mv "$remote_site/wp-content/debug.log" "$debug_verify_symlink_original"
+ln -s "$debug_verify_symlink_original" "$remote_site/wp-content/debug.log"
+if run_remote "$remote_repo/scripts/release/verify-remote.sh" \
+  --release-dir="$release_dir" --origin=https://goetzgoetz.kinsta.cloud >/dev/null 2>&1; then
+  fail 'remote verifier accepted a symlinked debug-log checkpoint'
+fi
+unlink "$remote_site/wp-content/debug.log"
+mv "$debug_verify_symlink_original" "$remote_site/wp-content/debug.log"
+
+# A request can emit a fatal after the pre-smoke scan. Verification must scan
+# the same checkpoint again after every route has been exercised.
+debug_size_before_route_smoke="$(stat -c %s "$remote_site/wp-content/debug.log")"
+touch "$record_root/append-debug-fatal-once"
+if run_remote "$remote_repo/scripts/release/verify-remote.sh" \
+  --release-dir="$release_dir" --origin=https://goetzgoetz.kinsta.cloud >/dev/null 2>&1; then
+  fail 'remote verifier ignored a PHP fatal generated by a route smoke'
+fi
+truncate -s "$debug_size_before_route_smoke" "$remote_site/wp-content/debug.log"
+
+# The final checkpoint scan must be stable through its last size check. A
+# fatal appended after tail reaches EOF but before the final stat must fail
+# closed instead of escaping the last post-smoke scan.
+debug_size_before_scan_race="$(stat -c %s "$remote_site/wp-content/debug.log")"
+printf 'benign byte before the scan race\n' >> "$remote_site/wp-content/debug.log"
+printf '2\n' > "$record_root/append-debug-fatal-after-tail-count"
+if run_remote "$remote_repo/scripts/release/verify-remote.sh" \
+  --release-dir="$release_dir" --origin=https://goetzgoetz.kinsta.cloud >/dev/null 2>&1; then
+  fail 'remote verifier accepted debug-log growth during its final checkpoint scan'
+fi
+truncate -s "$debug_size_before_scan_race" "$remote_site/wp-content/debug.log"
+find "$record_root/append-debug-fatal-after-tail-count" -delete 2>/dev/null || true
+
 nested_dump="$remote_site/wp-content/plugins/goetz-site/runtime/cache/forgotten.sql"
 mkdir -p "${nested_dump%/*}"
 printf 'forbidden nested dump\n' > "$nested_dump"
@@ -900,6 +1122,116 @@ rsync_after_apply_race="$(cat "$record_root/rsync-count")"
 printf '%s\n' 'https://goetzgoetz.kinsta.cloud' > "$remote_state/home"
 printf '%s\n' 'https://goetzgoetz.kinsta.cloud' > "$remote_state/siteurl"
 
+# Deployment must not reuse a byte offset from a replaced debug log. Rotate the
+# file after the preflight capture and write a shorter fatal-only replacement.
+run_remote "$remote_repo/scripts/release/remote-backup.sh" \
+  --backup-id=contract-debug-rotation --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
+printf 'historical debug bytes that are deliberately longer than the replacement fatal line; ignore these old bytes only\n' \
+  > "$remote_site/wp-content/debug.log"
+touch "$record_root/rotate-debug-log"
+if run_remote "$remote_repo/scripts/release/remote-apply.sh" \
+  --release-dir="$release_dir" --backup-id=contract-debug-rotation >/dev/null 2>&1; then
+  fail 'deployment accepted a fatal error in a rotated replacement debug log'
+fi
+debug_rotation_receipt="$remote_private/operations/deploy-$release_sha-contract-debug-rotation.status"
+assert_not_contains "$debug_rotation_receipt" 'phase=complete'
+assert_contains "$debug_rotation_receipt" 'phase=auto_rollback_succeeded'
+mv "$record_root/debug-log-before-rotation" "$remote_site/wp-content/debug.log"
+
+# copytruncate can preserve the inode and regrow to the old offset. A prefix
+# checkpoint must detect that the previously trusted bytes were rewritten.
+run_remote "$remote_repo/scripts/release/remote-backup.sh" \
+  --backup-id=contract-debug-prefix --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
+printf 'historical append-only prefix that is longer than the replacement fatal and must remain byte-for-byte stable\n' \
+  > "$remote_site/wp-content/debug.log"
+debug_prefix_inode="$(stat -c %i "$remote_site/wp-content/debug.log")"
+touch "$record_root/rewrite-debug-log-prefix"
+if run_remote "$remote_repo/scripts/release/remote-apply.sh" \
+  --release-dir="$release_dir" --backup-id=contract-debug-prefix >/dev/null 2>&1; then
+  fail 'deployment accepted a fatal error hidden by same-inode debug-log prefix rewrite'
+fi
+[[ "$(stat -c %i "$remote_site/wp-content/debug.log")" == "$debug_prefix_inode" ]] ||
+  fail 'debug prefix fixture did not preserve the debug-log inode'
+debug_prefix_receipt="$remote_private/operations/deploy-$release_sha-contract-debug-prefix.status"
+assert_not_contains "$debug_prefix_receipt" 'phase=complete'
+assert_contains "$debug_prefix_receipt" 'phase=auto_rollback_succeeded'
+cp "$record_root/debug-log-before-prefix-rewrite" "$remote_site/wp-content/debug.log"
+
+# An installation without debug.log still receives an auditable regular-file
+# checkpoint before deployment mutation begins. Re-establish the historical
+# fixture afterward so the remaining append-only tests retain a non-empty
+# prefix and original inode.
+run_remote "$remote_repo/scripts/release/remote-backup.sh" \
+  --backup-id=contract-debug-absent --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
+debug_before_absent="$fixture/debug-log-before-absent-deploy"
+mv "$remote_site/wp-content/debug.log" "$debug_before_absent"
+run_remote "$remote_repo/scripts/release/remote-apply.sh" \
+  --release-dir="$release_dir" --backup-id=contract-debug-absent >/dev/null
+[[ -f "$remote_site/wp-content/debug.log" && ! -L "$remote_site/wp-content/debug.log" ]] ||
+  fail 'deployment did not create a regular debug-log checkpoint when the file was initially absent'
+[[ "$(stat -c %a "$remote_site/wp-content/debug.log")" == '600' ]] ||
+  fail 'deployment created debug.log with permissions broader than 0600'
+grep -Eq '^debug_log_inode=[0-9]+$' "$remote_private/state/current-release" ||
+  fail 'deployment recorded no numeric inode for its created debug-log checkpoint'
+grep -Eq '^debug_log_prefix_sha256=[0-9a-f]{64}$' "$remote_private/state/current-release" ||
+  fail 'deployment recorded no prefix hash for its created debug-log checkpoint'
+find "$remote_site/wp-content/debug.log" -delete
+mv "$debug_before_absent" "$remote_site/wp-content/debug.log"
+run_remote "$remote_repo/scripts/release/remote-backup.sh" \
+  --backup-id=contract-debug-recheckpoint --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
+run_remote "$remote_repo/scripts/release/remote-apply.sh" \
+  --release-dir="$release_dir" --backup-id=contract-debug-recheckpoint >/dev/null
+
+# Continuity drift is itself release-blocking, even when the replacement log
+# contains no fatal. Recovery restores runtime state; the fixture restores the
+# original checkpoint inode before moving to the next case.
+run_remote "$remote_repo/scripts/release/remote-backup.sh" \
+  --backup-id=contract-debug-benign-rotation --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
+touch "$record_root/rotate-debug-log-benign"
+if run_remote "$remote_repo/scripts/release/remote-apply.sh" \
+  --release-dir="$release_dir" --backup-id=contract-debug-benign-rotation >/dev/null 2>&1; then
+  fail 'deployment accepted a byte-identical rotated debug log'
+fi
+assert_contains "$remote_private/operations/deploy-$release_sha-contract-debug-benign-rotation.status" \
+  'phase=auto_rollback_succeeded'
+find "$remote_site/wp-content/debug.log" -delete
+mv "$record_root/debug-log-before-benign-rotation" "$remote_site/wp-content/debug.log"
+
+run_remote "$remote_repo/scripts/release/remote-backup.sh" \
+  --backup-id=contract-debug-removal --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
+touch "$record_root/remove-debug-log"
+if run_remote "$remote_repo/scripts/release/remote-apply.sh" \
+  --release-dir="$release_dir" --backup-id=contract-debug-removal >/dev/null 2>&1; then
+  fail 'deployment accepted removal of its debug-log checkpoint'
+fi
+assert_contains "$remote_private/operations/deploy-$release_sha-contract-debug-removal.status" \
+  'phase=auto_rollback_succeeded'
+mv "$record_root/debug-log-before-removal" "$remote_site/wp-content/debug.log"
+
+run_remote "$remote_repo/scripts/release/remote-backup.sh" \
+  --backup-id=contract-debug-symlink --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
+touch "$record_root/symlink-debug-log"
+if run_remote "$remote_repo/scripts/release/remote-apply.sh" \
+  --release-dir="$release_dir" --backup-id=contract-debug-symlink >/dev/null 2>&1; then
+  fail 'deployment accepted a symlinked debug-log checkpoint'
+fi
+assert_contains "$remote_private/operations/deploy-$release_sha-contract-debug-symlink.status" \
+  'phase=auto_rollback_succeeded'
+unlink "$remote_site/wp-content/debug.log"
+mv "$record_root/debug-log-before-symlink" "$remote_site/wp-content/debug.log"
+
+run_remote "$remote_repo/scripts/release/remote-backup.sh" \
+  --backup-id=contract-debug-route-fatal --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
+debug_size_before_deploy_smoke="$(stat -c %s "$remote_site/wp-content/debug.log")"
+touch "$record_root/append-debug-fatal-once"
+if run_remote "$remote_repo/scripts/release/remote-apply.sh" \
+  --release-dir="$release_dir" --backup-id=contract-debug-route-fatal >/dev/null 2>&1; then
+  fail 'deployment ignored a PHP fatal generated by a route smoke'
+fi
+assert_contains "$remote_private/operations/deploy-$release_sha-contract-debug-route-fatal.status" \
+  'phase=auto_rollback_succeeded'
+truncate -s "$debug_size_before_deploy_smoke" "$remote_site/wp-content/debug.log"
+
 # Inject a mid-sync failure. The same remote process must restore while still
 # holding the shared lock and leave a durable recovery receipt.
 run_remote "$remote_repo/scripts/release/remote-backup.sh" \
@@ -912,6 +1244,42 @@ fi
 failure_receipt="$remote_private/operations/deploy-$release_sha-contract-failure.status"
 assert_contains "$failure_receipt" 'phase=auto_rollback_succeeded'
 [[ "$(cat "$remote_state/home")" == 'https://goetzgoetz.kinsta.cloud' ]] || fail 'deployment recovery did not restore the database origin'
+
+# ERR must be handled only by the parent remote shell. A WP-CLI failure inside
+# an assignment/command substitution must run packet recovery exactly once.
+run_remote "$remote_repo/scripts/release/remote-backup.sh" \
+  --backup-id=contract-substitution-failure --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
+substitution_imports_before="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
+touch "$record_root/fail-next-migration"
+if run_remote "$remote_repo/scripts/release/remote-apply.sh" \
+  --release-dir="$release_dir" --backup-id=contract-substitution-failure >/dev/null 2>&1; then
+  fail 'deployment ignored an assignment/command-substitution failure'
+fi
+substitution_imports_after="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
+(( substitution_imports_after == substitution_imports_before + 1 )) ||
+  fail 'deployment assignment failure ran recovery zero or multiple times'
+assert_contains "$remote_private/operations/deploy-$release_sha-contract-substitution-failure.status" \
+  'phase=auto_rollback_succeeded'
+
+# TERM after mutation begins must use the same in-lock recovery path exactly
+# once, leave a durable receipt, and remove its private work packet.
+run_remote "$remote_repo/scripts/release/remote-backup.sh" \
+  --backup-id=contract-deploy-signal --purpose=pre-deployment --release-dir="$release_dir" >/dev/null
+deploy_signal_imports_before="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
+touch "$record_root/signal-next-deploy-plugin-activate"
+if run_remote "$remote_repo/scripts/release/remote-apply.sh" \
+  --release-dir="$release_dir" --backup-id=contract-deploy-signal >/dev/null 2>&1; then
+  fail 'deployment unexpectedly succeeded after an injected TERM'
+fi
+deploy_signal_imports_after="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
+(( deploy_signal_imports_after == deploy_signal_imports_before + 1 )) ||
+  fail 'deployment TERM ran recovery zero or multiple times'
+assert_contains "$remote_private/operations/deploy-$release_sha-contract-deploy-signal.status" \
+  'phase=auto_rollback_succeeded'
+! find "$remote_private" -maxdepth 1 -type d -name "deploy-recovery-$release_sha-contract-deploy-signal-*" -print -quit | grep -q . ||
+  fail 'deployment TERM left a private recovery work directory'
+! find "$remote_private/operations" -maxdepth 1 -type f -name ".deploy-$release_sha-contract-deploy-signal.preflight.*" -print -quit | grep -q . ||
+  fail 'deployment TERM left a private preflight file'
 
 # A recovery is not complete until the fixed Kinsta target confirms its page
 # cache was purged. A purge failure must block the recovery receipt even when
@@ -953,10 +1321,13 @@ run_remote "$remote_repo/scripts/release/remote-backup.sh" \
 imports_before="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
 printf 'wp-content/themes/goetz-legal\n' > "$record_root/fail-source-once"
 touch "$record_root/disconnect-after-apply"
+deploy_disconnect_error="$fixture/deploy-disconnect.err"
 if run_remote "$remote_repo/scripts/release/remote-apply.sh" \
-  --release-dir="$release_dir" --backup-id=contract-disconnect >/dev/null 2>&1; then
+  --release-dir="$release_dir" --backup-id=contract-disconnect >/dev/null 2>"$deploy_disconnect_error"; then
   fail 'ambiguous transport-disconnect deployment unexpectedly succeeded locally'
 fi
+assert_contains "$deploy_disconnect_error" 'Recovery status is unknown'
+assert_not_contains "$deploy_disconnect_error" 'Remote recovery ran while holding'
 assert_contains "$remote_private/operations/deploy-$release_sha-contract-disconnect.status" 'phase=auto_rollback_succeeded'
 imports_after="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
 (( imports_after == imports_before + 1 )) || fail 'ambiguous disconnect caused zero or multiple database restores'
@@ -1043,6 +1414,70 @@ mv "$remote_site/wp-content/plugins/goetz-site.saved" "$remote_site/wp-content/p
 run_remote "$remote_repo/scripts/release/remote-backup.sh" \
   --backup-id=contract-cutover --purpose=pre-domain-cutover --release-dir="$release_dir" >/dev/null
 
+# Rollback dry-run must independently reject a checksum-consistent packet whose
+# code archive contains a non-regular entry; a name-only tar listing is not a
+# sufficient restore rehearsal.
+cutover_remote_backup="$remote_private/backups/contract-cutover"
+cutover_local_backup="$remote_repo/__dev/kinsta-backups/contract-cutover"
+cutover_backup_originals="$fixture/contract-cutover-originals"
+mkdir -p "$cutover_backup_originals/remote" "$cutover_backup_originals/local"
+for packet_file in code-plugin-goetz-site.tar.gz uploads.tar.gz SHA256SUMS; do
+  cp -a "$cutover_remote_backup/$packet_file" "$cutover_backup_originals/remote/$packet_file"
+  cp -a "$cutover_local_backup/$packet_file" "$cutover_backup_originals/local/$packet_file"
+done
+cp -a "$cutover_local_backup/LOCAL-VERIFICATION" "$cutover_backup_originals/local/LOCAL-VERIFICATION"
+
+refresh_cutover_packet_checksums() {
+  local manifest_hash
+  (
+    cd "$cutover_remote_backup"
+    find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%P\0' |
+      LC_ALL=C sort -z |
+      xargs -0 sha256sum > SHA256SUMS
+  )
+  cp "$cutover_remote_backup/SHA256SUMS" "$cutover_local_backup/SHA256SUMS"
+  manifest_hash="$(sha256sum "$cutover_remote_backup/SHA256SUMS" | cut -d' ' -f1)"
+  sed -i "s/^manifest_sha256=.*/manifest_sha256=$manifest_hash/" "$cutover_local_backup/LOCAL-VERIFICATION"
+}
+
+unsafe_code_archive="$fixture/unsafe-code-archive"
+mkdir -p "$unsafe_code_archive/wp-content/plugins/goetz-site"
+ln -s "$fixture/backup-symlink-target" "$unsafe_code_archive/wp-content/plugins/goetz-site/redirected"
+tar -czf "$cutover_remote_backup/code-plugin-goetz-site.tar.gz" \
+  -C "$unsafe_code_archive" 'wp-content/plugins/goetz-site'
+cp "$cutover_remote_backup/code-plugin-goetz-site.tar.gz" "$cutover_local_backup/code-plugin-goetz-site.tar.gz"
+refresh_cutover_packet_checksums
+ssh_before_unsafe_code="$(cat "$record_root/ssh-count")"
+if run_remote "$remote_repo/scripts/release/rollback.sh" \
+  --backup-id=contract-cutover --dry-run >/dev/null 2>&1; then
+  fail 'rollback dry-run certified a code archive containing a symbolic link'
+fi
+ssh_after_unsafe_code="$(cat "$record_root/ssh-count")"
+[[ "$ssh_after_unsafe_code" == "$ssh_before_unsafe_code" ]] ||
+  fail 'local backup verification contacted SSH before rejecting an unsafe code archive'
+for packet_file in code-plugin-goetz-site.tar.gz SHA256SUMS; do
+  cp -a "$cutover_backup_originals/remote/$packet_file" "$cutover_remote_backup/$packet_file"
+  cp -a "$cutover_backup_originals/local/$packet_file" "$cutover_local_backup/$packet_file"
+done
+cp -a "$cutover_backup_originals/local/LOCAL-VERIFICATION" "$cutover_local_backup/LOCAL-VERIFICATION"
+
+unsafe_upload_archive="$fixture/unsafe-upload-archive"
+mkdir -p "$unsafe_upload_archive/wp-content/uploads"
+ln -s "$fixture/backup-symlink-target" "$unsafe_upload_archive/wp-content/uploads/redirected"
+tar -czf "$cutover_remote_backup/uploads.tar.gz" \
+  -C "$unsafe_upload_archive" 'wp-content/uploads'
+cp "$cutover_remote_backup/uploads.tar.gz" "$cutover_local_backup/uploads.tar.gz"
+refresh_cutover_packet_checksums
+if run_remote "$remote_repo/scripts/release/rollback.sh" \
+  --backup-id=contract-cutover --dry-run >/dev/null 2>&1; then
+  fail 'rollback dry-run certified an uploads archive containing a symbolic link'
+fi
+for packet_file in uploads.tar.gz SHA256SUMS; do
+  cp -a "$cutover_backup_originals/remote/$packet_file" "$cutover_remote_backup/$packet_file"
+  cp -a "$cutover_backup_originals/local/$packet_file" "$cutover_local_backup/$packet_file"
+done
+cp -a "$cutover_backup_originals/local/LOCAL-VERIFICATION" "$cutover_local_backup/LOCAL-VERIFICATION"
+
 printf 'https://goetzlegal.com\n' > "$record_root/mutate-origin-on-lock"
 if run_remote "$remote_repo/scripts/release/cutover.sh" \
   --from=https://goetzgoetz.kinsta.cloud --to=https://goetzlegal.com \
@@ -1102,11 +1537,85 @@ assert_contains "$cutover_purge_receipt" 'phase=auto_rollback_succeeded'
    "$(cat "$remote_state/siteurl")" == 'https://goetzgoetz.kinsta.cloud' ]] ||
   fail 'cutover purge failure recovery did not restore the staging origin'
 
+# SEO reconfiguration is part of the URL mutation transaction. A failure after
+# search-replace must restore the pre-cutover database before reporting failure.
+touch "$record_root/force-cutover-seo-second-configured"
+if run_remote "$remote_repo/scripts/release/cutover.sh" \
+  --from=https://goetzgoetz.kinsta.cloud --to=https://goetzlegal.com \
+  --backup-id=contract-cutover --apply >/dev/null 2>&1; then
+  fail 'cutover accepted configured instead of exact noop from its second strict SEO pass'
+fi
+assert_contains "$remote_private/operations/cutover-contract-cutover.status" 'phase=auto_rollback_succeeded'
+[[ "$(cat "$remote_state/home")" == 'https://goetzgoetz.kinsta.cloud' && \
+   "$(cat "$remote_state/siteurl")" == 'https://goetzgoetz.kinsta.cloud' ]] ||
+  fail 'cutover SEO status validation failure did not restore the staging origin'
+
+cutover_substitution_imports_before="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
+touch "$record_root/fail-next-cutover-seo"
+if run_remote "$remote_repo/scripts/release/cutover.sh" \
+  --from=https://goetzgoetz.kinsta.cloud --to=https://goetzlegal.com \
+  --backup-id=contract-cutover --apply >/dev/null 2>&1; then
+  fail 'cutover ignored an injected strict SEO configuration failure'
+fi
+cutover_substitution_imports_after="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
+(( cutover_substitution_imports_after == cutover_substitution_imports_before + 1 )) ||
+  fail 'cutover assignment failure ran database recovery zero or multiple times'
+assert_contains "$remote_private/operations/cutover-contract-cutover.status" 'phase=auto_rollback_succeeded'
+[[ "$(cat "$remote_state/home")" == 'https://goetzgoetz.kinsta.cloud' && \
+   "$(cat "$remote_state/siteurl")" == 'https://goetzgoetz.kinsta.cloud' ]] ||
+  fail 'cutover SEO failure recovery did not restore the staging origin'
+
+# TERM after search-replace begins must recover the coupled database exactly
+# once while the lock is held and leave a durable recovery receipt.
+cutover_signal_imports_before="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
+touch "$record_root/signal-next-cutover-search-replace"
+if run_remote "$remote_repo/scripts/release/cutover.sh" \
+  --from=https://goetzgoetz.kinsta.cloud --to=https://goetzlegal.com \
+  --backup-id=contract-cutover --apply >/dev/null 2>&1; then
+  fail 'cutover unexpectedly succeeded after an injected TERM'
+fi
+cutover_signal_imports_after="$(grep -c '<db><import>' "$record_root/wp.log" || true)"
+(( cutover_signal_imports_after == cutover_signal_imports_before + 1 )) ||
+  fail 'cutover TERM ran database recovery zero or multiple times'
+assert_contains "$remote_private/operations/cutover-contract-cutover.status" 'phase=auto_rollback_succeeded'
+[[ "$(cat "$remote_state/home")" == 'https://goetzgoetz.kinsta.cloud' && \
+   "$(cat "$remote_state/siteurl")" == 'https://goetzgoetz.kinsta.cloud' ]] ||
+  fail 'cutover TERM recovery did not restore the staging origin'
+
+# A lost SSH return path makes the remote outcome ambiguous. The local wrapper
+# points to the receipt but never claims that recovery definitely ran.
+touch "$record_root/fail-next-cutover" "$record_root/disconnect-after-cutover"
+cutover_disconnect_error="$fixture/cutover-disconnect.err"
+if run_remote "$remote_repo/scripts/release/cutover.sh" \
+  --from=https://goetzgoetz.kinsta.cloud --to=https://goetzlegal.com \
+  --backup-id=contract-cutover --apply >/dev/null 2>"$cutover_disconnect_error"; then
+  fail 'ambiguous transport-disconnect cutover unexpectedly succeeded locally'
+fi
+assert_contains "$cutover_disconnect_error" 'Recovery status is unknown'
+assert_not_contains "$cutover_disconnect_error" 'Database recovery ran while holding'
+assert_contains "$remote_private/operations/cutover-contract-cutover.status" 'phase=auto_rollback_succeeded'
+[[ "$(cat "$remote_state/home")" == 'https://goetzgoetz.kinsta.cloud' && \
+   "$(cat "$remote_state/siteurl")" == 'https://goetzgoetz.kinsta.cloud' ]] ||
+  fail 'ambiguous cutover disconnect fixture did not recover the staging origin remotely'
+
+cutover_wp_start="$(wc -l < "$record_root/wp.log")"
 run_remote "$remote_repo/scripts/release/cutover.sh" \
   --from=https://goetzgoetz.kinsta.cloud --to=https://goetzlegal.com \
   --backup-id=contract-cutover --apply >/dev/null
 [[ "$(cat "$remote_state/home")" == 'https://goetzlegal.com' && "$(cat "$remote_state/siteurl")" == 'https://goetzlegal.com' ]] ||
   fail 'cutover apply did not set the exact production origin'
+cutover_wp_log="$fixture/cutover-success.wp.log"
+tail -n "+$((cutover_wp_start + 1))" "$record_root/wp.log" > "$cutover_wp_log"
+[[ "$(grep -Fc '<--path='"$remote_site"'><goetz-site><seo><configure><--strict><--format=json>' "$cutover_wp_log")" -eq 2 ]] ||
+  fail 'cutover did not run strict SEO configuration exactly twice'
+grep -Fq '<--path='"$remote_site"'><yoast><index><--reindex><--skip-confirmation>' "$cutover_wp_log" ||
+  fail 'cutover did not reindex Yoast'
+awk '
+  /<goetz-site><seo><configure><--strict><--format=json>/ { seo++; if (seo == 2) second_seo = NR }
+  /<yoast><index><--reindex><--skip-confirmation>/ { yoast = NR }
+  /<rewrite><flush><--hard>/ { if (!rewrite) rewrite = NR }
+  END { exit !(seo == 2 && second_seo < yoast && yoast < rewrite) }
+' "$cutover_wp_log" || fail 'cutover SEO configuration, Yoast index, and cache preparation ran out of order'
 
 rollback_dry="$fixture/rollback-dry.out"
 find "$remote_site" -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > "$fixture/rollback-before.sha"
@@ -1118,6 +1627,21 @@ for dry_marker in rollback_preflight would_restore_code would_restore_uploads wo
   would_verify_state would_flush would_smoke_routes manager_apply_command; do
   assert_contains "$rollback_dry" "$dry_marker"
 done
+
+# Manual rollback cannot automatically undo an interruption of itself. TERM
+# must therefore replace the in-progress phase with an explicit manual-
+# intervention receipt and remove all private extraction/preflight work.
+touch "$record_root/signal-next-rollback-db-import"
+if run_remote "$remote_repo/scripts/release/rollback.sh" \
+  --backup-id=contract-cutover --apply >/dev/null 2>&1; then
+  fail 'manual rollback unexpectedly succeeded after an injected TERM'
+fi
+rollback_signal_receipt="$remote_private/operations/rollback-contract-cutover.status"
+assert_contains "$rollback_signal_receipt" 'phase=rollback_failed_manual_intervention_required'
+! find "$remote_private" -maxdepth 1 -type d -name 'rollback-work-contract-cutover-*' -print -quit | grep -q . ||
+  fail 'rollback TERM left a private extraction work directory'
+! find "$remote_private/operations" -maxdepth 1 -type f -name '.rollback-contract-cutover.preflight.*' -print -quit | grep -q . ||
+  fail 'rollback TERM left a private preflight file'
 
 # Once rollback mutation begins, route-smoke failures must pass through the ERR
 # handler and replace the in-progress smoke receipt with the durable manual-
@@ -1145,6 +1669,13 @@ if run_remote "$remote_repo/scripts/release/rollback.sh" \
   --backup-id=contract-cutover --apply-without-review >/dev/null 2>&1; then
   fail 'rollback accepted a write flag other than exact --apply'
 fi
+
+for mutation_script in remote-apply.sh cutover.sh rollback.sh; do
+  for signal_name in HUP INT TERM; do
+    grep -Eq "trap .* ${signal_name}($|')" "scripts/release/$mutation_script" ||
+      fail "$mutation_script does not trap $signal_name during remote mutation"
+  done
+done
 
 # All transport children receive only the sanitized environment and hardened
 # SSH policy. Neither the synthetic passphrase nor its variable name survives.

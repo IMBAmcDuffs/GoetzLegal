@@ -79,7 +79,7 @@ if ($image_html === '') {
                                     : '';
                                 $new_tab = array_key_exists('newTab', $link)
                                     ? \Goetz\Site\normalize_boolean($link['newTab'])
-                                    : true;
+                                    : false;
                                 ?>
                                 <li>
                                     <span class="goetz-resource-links__icon" aria-hidden="true"></span>

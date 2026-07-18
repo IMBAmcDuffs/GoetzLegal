@@ -33,14 +33,46 @@ unset SSH_AUTH_SOCK
 unset SSH_KEY_PW
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WP_PATH=/var/www/html
+ENV_PATH="${ROOT_DIR}/.env"
 
-if [[ ! -f "${ROOT_DIR}/.env" ]]; then
-  (
+require_safe_env_file() {
+  [[ -f "$ENV_PATH" && ! -L "$ENV_PATH" ]] || {
+    printf 'Refusing an unsafe or redirected .env file: %s\n' "$ENV_PATH" >&2
+    return 2
+  }
+  [[ "$(readlink -f -- "$ENV_PATH")" == "$ENV_PATH" ]] || {
+    printf 'Refusing an unsafe or redirected .env file: %s\n' "$ENV_PATH" >&2
+    return 2
+  }
+}
+
+if [[ -e "$ENV_PATH" || -L "$ENV_PATH" ]]; then
+  require_safe_env_file
+else
+  env_tmp="$(
     umask 077
-    cp "${ROOT_DIR}/.env.example" "${ROOT_DIR}/.env"
-  )
+    mktemp "${ROOT_DIR}/.env.create.XXXXXX"
+  )"
+  cleanup_env_tmp() {
+    if [[ -n "${env_tmp:-}" && -f "$env_tmp" && ! -L "$env_tmp" ]] &&
+      [[ "$(readlink -f -- "$env_tmp")" == "$env_tmp" ]]; then
+      unlink -- "$env_tmp"
+    fi
+  }
+  trap cleanup_env_tmp EXIT
+  cp "${ROOT_DIR}/.env.example" "$env_tmp"
+  chmod 0600 "$env_tmp"
+  if ! ln -- "$env_tmp" "$ENV_PATH"; then
+    printf 'Could not create .env without following an existing path: %s\n' "$ENV_PATH" >&2
+    exit 2
+  fi
+  unlink -- "$env_tmp"
+  env_tmp=''
+  trap - EXIT
 fi
-chmod 600 "${ROOT_DIR}/.env"
+require_safe_env_file
+chmod 0600 "$ENV_PATH"
+require_safe_env_file
 
 cd "${ROOT_DIR}"
 set +a
@@ -490,25 +522,94 @@ restore_local_site_settings() {
     eval-file "$PLAYWRIGHT_SETTINGS_SNAPSHOT_SCRIPT" restore < "$snapshot_file" >/dev/null
 }
 
+playwright_directory_error() {
+  printf 'Refusing an unsafe Playwright directory path: %s\n' "$1" >&2
+  return 2
+}
+
+validate_playwright_directory_path() {
+  local path="$1"
+  local relative
+  local current="$ROOT_DIR"
+  local component
+  local -a components=()
+
+  [[ "$path" == "$ROOT_DIR"/* && -d "$ROOT_DIR" && ! -L "$ROOT_DIR" ]] ||
+    playwright_directory_error "$path" || return
+  relative="${path#"$ROOT_DIR"/}"
+  IFS='/' read -r -a components <<< "$relative"
+  (( ${#components[@]} > 0 )) || playwright_directory_error "$path" || return
+
+  for component in "${components[@]}"; do
+    [[ -n "$component" && "$component" != '.' && "$component" != '..' ]] ||
+      playwright_directory_error "$path" || return
+    current="${current}/${component}"
+    if [[ -L "$current" || ( -e "$current" && ! -d "$current" ) ]]; then
+      playwright_directory_error "$path"
+      return
+    fi
+  done
+}
+
+prepare_safe_playwright_directory() {
+  local path="$1"
+  local mode="$2"
+  local relative
+  local current="$ROOT_DIR"
+  local component
+  local -a components=()
+
+  validate_playwright_directory_path "$path"
+  relative="${path#"$ROOT_DIR"/}"
+  IFS='/' read -r -a components <<< "$relative"
+  for component in "${components[@]}"; do
+    current="${current}/${component}"
+    if [[ ! -e "$current" && ! -L "$current" ]]; then
+      if ! mkdir -- "$current"; then
+        playwright_directory_error "$path"
+        return
+      fi
+    fi
+    validate_playwright_directory_path "$current"
+  done
+  if [[ "$mode" != '-' ]]; then
+    chmod "$mode" "$path"
+  fi
+  validate_playwright_directory_path "$path"
+}
+
 prepare_playwright_paths() {
-  mkdir -p \
-    "$PLAYWRIGHT_STATE_DIR" \
-    "$PLAYWRIGHT_AUTH_MODULES" \
-    "$PLAYWRIGHT_PUBLIC_MODULES" \
-    "$PLAYWRIGHT_AUTH_ARTIFACTS" \
-    "$PLAYWRIGHT_PUBLIC_ARTIFACTS"
-  chmod 0700 \
-    "$PLAYWRIGHT_STATE_DIR" \
-    "$PLAYWRIGHT_AUTH_MODULES" \
+  local path
+  local -a paths=(
+    "$PLAYWRIGHT_STATE_DIR"
+    "$PLAYWRIGHT_AUTH_MODULES"
+    "$PLAYWRIGHT_PUBLIC_MODULES"
     "$PLAYWRIGHT_AUTH_ARTIFACTS"
+    "$PLAYWRIGHT_PUBLIC_ARTIFACTS"
+  )
+  for path in "${paths[@]}"; do
+    validate_playwright_directory_path "$path"
+  done
+  prepare_safe_playwright_directory "$PLAYWRIGHT_STATE_DIR" 0700
+  prepare_safe_playwright_directory "$PLAYWRIGHT_AUTH_MODULES" 0700
+  prepare_safe_playwright_directory "$PLAYWRIGHT_PUBLIC_MODULES" -
+  prepare_safe_playwright_directory "$PLAYWRIGHT_AUTH_ARTIFACTS" 0700
+  prepare_safe_playwright_directory "$PLAYWRIGHT_PUBLIC_ARTIFACTS" -
 }
 
 prepare_playwright_capture_paths() {
-  mkdir -p \
-    "$PLAYWRIGHT_CAPTURE_MODULES" \
-    "$PLAYWRIGHT_CAPTURE_ARTIFACTS" \
+  local path
+  local -a paths=(
+    "$PLAYWRIGHT_CAPTURE_MODULES"
+    "$PLAYWRIGHT_CAPTURE_ARTIFACTS"
     "$PLAYWRIGHT_REFERENCE_FIXTURES_PARENT"
-  chmod 0700 "$PLAYWRIGHT_CAPTURE_MODULES" "$PLAYWRIGHT_CAPTURE_ARTIFACTS"
+  )
+  for path in "${paths[@]}"; do
+    validate_playwright_directory_path "$path"
+  done
+  prepare_safe_playwright_directory "$PLAYWRIGHT_CAPTURE_MODULES" 0700
+  prepare_safe_playwright_directory "$PLAYWRIGHT_CAPTURE_ARTIFACTS" 0700
+  prepare_safe_playwright_directory "$PLAYWRIGHT_REFERENCE_FIXTURES_PARENT" -
 }
 
 invoke_playwright_child() {
@@ -545,6 +646,141 @@ invoke_playwright_child() {
   compose run --rm -w /work/e2e "${environment_args[@]}" "$playwright_service" npm run "$script" -- "$@"
 }
 
+validate_remote_verification_origin() {
+  local origin
+  origin="$(canonical_http_origin "$1")" || {
+    echo 'Remote authenticated verification origin validation failed.' >&2
+    return 2
+  }
+
+  case "$origin" in
+    https://goetzgoetz.kinsta.cloud|https://goetzlegal.com) ;;
+    *)
+      echo 'Remote authenticated verification is restricted to the approved staging and production origins.' >&2
+      return 2
+      ;;
+  esac
+}
+
+validate_ephemeral_remote_playwright_args() {
+  if (( $# != 1 )) || [[ "$1" != 'production-read-only.spec.ts' ]]; then
+    echo 'Ephemeral remote verification requires exactly: production-read-only.spec.ts' >&2
+    return 2
+  fi
+}
+
+generate_remote_verification_credentials() {
+  local -n username_output="$1"
+  local -n password_output="$2"
+  local username_suffix
+  local generated_password
+  username_suffix="$(/usr/bin/openssl rand -hex 8)" || {
+    echo 'Could not generate the temporary verification username.' >&2
+    return 1
+  }
+  generated_password="$(/usr/bin/openssl rand -hex 32)" || {
+    echo 'Could not generate the temporary verification password.' >&2
+    return 1
+  }
+  [[ "$username_suffix" =~ ^[a-f0-9]{16}$ && "$generated_password" =~ ^[a-f0-9]{64}$ ]] || {
+    echo 'Temporary verification credential generation returned an invalid value.' >&2
+    return 1
+  }
+
+  username_output="goetz_verify_${username_suffix}"
+  password_output="$generated_password"
+}
+
+remote_verification_wp() (
+  local operation="$1"
+  local username="$2"
+  local password="${3-}"
+  [[ "$username" =~ ^goetz_verify_[a-f0-9]{16}$ ]] || {
+    echo 'Temporary verification username validation failed.' >&2
+    return 2
+  }
+
+  export SSH_AUTH_SOCK="$CALLER_SSH_AUTH_SOCK"
+  export KINSTA_SSH_USER KINSTA_SSH_HOST KINSTA_SSH_PORT KINSTA_SITE_PATH KINSTA_KNOWN_HOSTS_FILE
+  GOETZ_COMMAND_NAME='remote-auth-verification'
+  # shellcheck disable=SC1091
+  source "${ROOT_DIR}/scripts/release/common.sh"
+  goetz_require_kinsta
+
+  case "$operation" in
+    create)
+      [[ "$password" =~ ^[a-f0-9]{64}$ ]] || {
+        echo 'Temporary verification password validation failed.' >&2
+        return 2
+      }
+      printf '%s\n' "$password" | goetz_ssh \
+        wp --path="$GOETZ_EXPECTED_SITE" --no-color \
+        user create "$username" "${username}@goetz-verification.invalid" \
+        --role=administrator --porcelain --prompt=user_pass
+      ;;
+    cleanup)
+      goetz_ssh bash -s -- "$GOETZ_EXPECTED_SITE" "$username" <<'REMOTE'
+# GOETZ_REMOTE_VERIFICATION_USER_CLEANUP
+set -euo pipefail
+site_path="$1"
+username="$2"
+[[ "$site_path" == '/www/goetzgoetz_755/public' ]]
+[[ "$username" =~ ^goetz_verify_[a-f0-9]{16}$ ]]
+
+matching_users="$(wp --path="$site_path" --no-color user list \
+  --login="$username" --format=count)"
+[[ "$matching_users" == '0' || "$matching_users" == '1' ]]
+if [[ "$matching_users" == '1' ]]; then
+  wp --path="$site_path" --no-color user delete "$username" --yes >/dev/null
+fi
+
+remaining_users="$(wp --path="$site_path" --no-color user list \
+  --login="$username" --format=count)"
+[[ "$remaining_users" == '0' ]]
+REMOTE
+      ;;
+    *)
+      echo 'Unknown remote verification WP-CLI operation.' >&2
+      return 2
+      ;;
+  esac
+)
+
+invoke_remote_authenticated_playwright_child() {
+  local script="$1"
+  local playwright_service="$2"
+  local base_url="$3"
+  local username="$4"
+  local password="$5"
+  shift 5
+
+  local GOETZ_BASE_URL="$base_url"
+  local GOETZ_E2E_ALLOW_REMOTE=1
+  local -a environment_args=(-e GOETZ_BASE_URL -e GOETZ_E2E_ALLOW_REMOTE)
+  if [[ -n "$CALLER_GOETZ_EXPECT_ORIGIN_SET" ]]; then
+    local GOETZ_EXPECT_ORIGIN="$CALLER_GOETZ_EXPECT_ORIGIN"
+    environment_args+=(-e GOETZ_EXPECT_ORIGIN)
+  fi
+  if [[ -n "$CALLER_GOETZ_EXPECT_PRODUCTION_SET" ]]; then
+    local GOETZ_EXPECT_PRODUCTION="$CALLER_GOETZ_EXPECT_PRODUCTION"
+    environment_args+=(-e GOETZ_EXPECT_PRODUCTION)
+  fi
+
+  printf '%s\n%s\n' "$username" "$password" | compose run --rm -T -w /work/e2e \
+    "${environment_args[@]}" "$playwright_service" /bin/sh -ceu '
+      script="$1"
+      shift
+      IFS= read -r GOETZ_E2E_USER
+      IFS= read -r GOETZ_E2E_PASSWORD
+      if [ -z "$GOETZ_E2E_USER" ] || [ -z "$GOETZ_E2E_PASSWORD" ]; then
+        printf "%s\n" "Authenticated Playwright credentials were not supplied." >&2
+        exit 2
+      fi
+      export GOETZ_E2E_USER GOETZ_E2E_PASSWORD
+      exec npm run "$script" -- "$@"
+    ' goetz-playwright-auth "$script" "$@"
+}
+
 run_playwright() {
   local script="$1"
   local authenticated="$2"
@@ -562,6 +798,7 @@ run_playwright() {
   local username=''
   local password=''
   local local_test='no'
+  local remote_ephemeral='no'
   if is_local_test_url "$base_url"; then
     local_test='yes'
   fi
@@ -583,13 +820,20 @@ run_playwright() {
         echo 'Remote authenticated tests require GOETZ_E2E_ALLOW_REMOTE=1.' >&2
         return 2
       }
-      [[ -n "$CALLER_GOETZ_E2E_USER_SET" && -n "$CALLER_GOETZ_E2E_USER" &&
-        -n "$CALLER_GOETZ_E2E_PASSWORD_SET" && -n "$CALLER_GOETZ_E2E_PASSWORD" ]] || {
-        echo 'Remote authenticated tests require explicit caller credentials.' >&2
-        return 2
-      }
-      username="$CALLER_GOETZ_E2E_USER"
-      password="$CALLER_GOETZ_E2E_PASSWORD"
+      if [[ -n "$CALLER_GOETZ_E2E_USER_SET" || -n "$CALLER_GOETZ_E2E_PASSWORD_SET" ]]; then
+        [[ -n "$CALLER_GOETZ_E2E_USER_SET" && -n "$CALLER_GOETZ_E2E_USER" &&
+          -n "$CALLER_GOETZ_E2E_PASSWORD_SET" && -n "$CALLER_GOETZ_E2E_PASSWORD" ]] || {
+          echo 'Remote authenticated caller credentials must be supplied as a complete pair.' >&2
+          return 2
+        }
+        username="$CALLER_GOETZ_E2E_USER"
+        password="$CALLER_GOETZ_E2E_PASSWORD"
+      else
+        validate_remote_verification_origin "$base_url"
+        validate_ephemeral_remote_playwright_args "$@"
+        require_kinsta_config
+        remote_ephemeral='yes'
+      fi
     fi
   fi
 
@@ -607,14 +851,44 @@ run_playwright() {
   need_docker
   prepare_playwright_paths
   if [[ "$authenticated" == 'yes' ]]; then
+    local authenticated_runner_pid=0
+    local authenticated_signal_name=''
+    local authenticated_signal_status=0
+    forward_authenticated_signal() {
+      local signal_name="$1"
+      local signal_status="$2"
+      authenticated_signal_name="$signal_name"
+      authenticated_signal_status="$signal_status"
+      if (( authenticated_runner_pid > 0 )); then
+        kill -s "$signal_name" -- "-$authenticated_runner_pid" 2>/dev/null || true
+      fi
+    }
+    trap 'forward_authenticated_signal HUP 129' HUP
+    trap 'forward_authenticated_signal INT 130' INT
+    trap 'forward_authenticated_signal TERM 143' TERM
+
+    local monitor_mode_was_enabled='no'
+    [[ "$-" == *m* ]] && monitor_mode_was_enabled='yes'
+    if [[ "$monitor_mode_was_enabled" == 'no' ]]; then
+      set -m
+    fi
     (
       local settings_snapshot=''
       local restore_settings='no'
+      local remote_cleanup='no'
       restore_playwright_state() {
         local run_status=$?
         local restore_status=0
+        local remote_cleanup_failed='no'
         trap - EXIT HUP INT TERM
         set +e
+        if [[ "$remote_cleanup" == 'yes' ]]; then
+          if ! remote_verification_wp cleanup "$username" >/dev/null 2>&1; then
+            remote_cleanup_failed='yes'
+            printf '%s\n' \
+              'CRITICAL: temporary remote verification administrator cleanup failed; follow the emergency cleanup runbook immediately.' >&2
+          fi
+        fi
         if [[ "$restore_settings" == 'yes' ]]; then
           restore_local_site_settings "$settings_snapshot" || restore_status=$?
         fi
@@ -622,12 +896,19 @@ run_playwright() {
           rm -f -- "$settings_snapshot"
         fi
         cleanup_playwright_auth_state
-        if (( run_status == 0 && restore_status != 0 )); then
+        password=''
+        username=''
+        if [[ "$remote_cleanup_failed" == 'yes' ]]; then
+          run_status=70
+        elif (( run_status == 0 && restore_status != 0 )); then
           run_status=$restore_status
         fi
         exit "$run_status"
       }
-      trap restore_playwright_state EXIT HUP INT TERM
+      trap restore_playwright_state EXIT
+      trap 'exit 129' HUP
+      trap 'exit 130' INT
+      trap 'exit 143' TERM
       cleanup_playwright_auth_state
       if [[ "$local_test" == 'yes' ]]; then
         settings_snapshot="$(mktemp "${PLAYWRIGHT_STATE_DIR}/site-settings-option.XXXXXX")"
@@ -635,10 +916,43 @@ run_playwright() {
         restore_settings='yes'
       fi
       compose run --rm -w /work/e2e "$playwright_service" npm ci
-      invoke_playwright_child \
-        "$script" "$authenticated" "$playwright_service" "$base_url" "$username" "$password" "$@"
-    )
-    return
+      if [[ "$local_test" == 'yes' || "$remote_ephemeral" == 'no' ]]; then
+        invoke_playwright_child \
+          "$script" "$authenticated" "$playwright_service" "$base_url" "$username" "$password" "$@"
+      else
+        generate_remote_verification_credentials username password
+        remote_cleanup='yes'
+        remote_verification_wp create "$username" "$password" >/dev/null
+        invoke_remote_authenticated_playwright_child \
+          "$script" "$playwright_service" "$base_url" "$username" "$password" "$@"
+      fi
+    ) &
+    authenticated_runner_pid=$!
+    if [[ "$monitor_mode_was_enabled" == 'no' ]]; then
+      set +m
+    fi
+    if [[ -n "$authenticated_signal_name" ]]; then
+      kill -s "$authenticated_signal_name" -- "-$authenticated_runner_pid" 2>/dev/null || true
+    fi
+
+    local authenticated_runner_status=0
+    if wait "$authenticated_runner_pid"; then
+      authenticated_runner_status=0
+    else
+      authenticated_runner_status=$?
+      if kill -0 "$authenticated_runner_pid" 2>/dev/null; then
+        if wait "$authenticated_runner_pid"; then
+          authenticated_runner_status=0
+        else
+          authenticated_runner_status=$?
+        fi
+      fi
+    fi
+    trap - HUP INT TERM
+    if (( authenticated_signal_status != 0 )); then
+      return "$authenticated_signal_status"
+    fi
+    return "$authenticated_runner_status"
   fi
 
   compose run --rm -w /work/e2e "$playwright_service" npm ci
@@ -826,6 +1140,7 @@ test_all() {
     return 2
   }
   bash tests/contracts/repository-release.sh
+  bash tests/contracts/remote-auth-verification.sh
   test_unit
   test_integration
   test_compat full

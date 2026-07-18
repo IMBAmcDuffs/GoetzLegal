@@ -304,17 +304,17 @@ for (const viewport of [
       }
     }
 
-    const attorneyMark = await page.locator('.goetz-attorney-grid__heading').evaluate((heading) => {
-      const style = getComputedStyle(heading, '::after');
+    const attorneyMark = await page.locator('img.goetz-attorney-grid__mark').evaluate((mark) => {
+      const style = getComputedStyle(mark);
       return {
-        backgroundImage: style.backgroundImage,
         display: style.display,
         height: Number.parseFloat(style.height),
+        src: mark.getAttribute('src') || '',
         width: Number.parseFloat(style.width),
       };
     });
     expect(attorneyMark.display).toBe('block');
-    expect(attorneyMark.backgroundImage).toContain('law-scale-icon-purple.png');
+    expect(attorneyMark.src).toContain('law-scale-icon-purple.png');
     expect(attorneyMark.width).toBe(40);
     expect(attorneyMark.height).toBe(39);
 

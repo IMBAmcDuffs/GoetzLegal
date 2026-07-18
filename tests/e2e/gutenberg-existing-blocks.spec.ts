@@ -310,10 +310,17 @@ async function editorBlock(page: Page, name: BlockName): Promise<Locator> {
   return block;
 }
 
-async function chooseImage(page: Page, block: Locator, image: TemporaryImage): Promise<void> {
-  const selectButtonName = /^Select .+ image$/;
-  const inlineButton = block.getByRole('button', { name: selectButtonName });
-  const inspectorButton = page.getByRole('button', { name: selectButtonName });
+async function chooseImage(
+  page: Page,
+  block: Locator,
+  image: TemporaryImage,
+  mediaLabel: string,
+): Promise<void> {
+  const mediaButton = (root: Locator | Page) => root
+    .getByRole('button', { name: `Select ${mediaLabel}`, exact: true })
+    .or(root.getByRole('button', { name: `Replace ${mediaLabel}`, exact: true }));
+  const inlineButton = mediaButton(block);
+  const inspectorButton = mediaButton(page);
   await expect.poll(async () => (
     await inlineButton.count() + await inspectorButton.count()
   )).toBeGreaterThan(0);
@@ -524,7 +531,7 @@ test('existing Goetz blocks save, reload, and update through their native editor
     await fillLabelledField(page, hero, 'Hero heading', 'Final hero heading');
     await fillLabelledField(page, hero, 'Hero content', 'Final hero content');
     await fillLabelledField(page, hero, 'Hero button text', 'Final hero button');
-    await chooseImage(page, hero, fixtures.image);
+    await chooseImage(page, hero, fixtures.image, 'Hero image');
     await fillLabelledField(page, hero, 'Hero image alt text', 'Final hero image alt');
     await setLink(
       page,
@@ -541,7 +548,7 @@ test('existing Goetz blocks save, reload, and update through their native editor
     await fillLabelledField(page, attorney, 'Attorney role', 'Final Partner');
     await fillLabelledField(page, attorney, 'Attorney biography', 'Final attorney biography');
     await fillLabelledField(page, attorney, 'Attorney email', 'jane.final@example.test');
-    await chooseImage(page, attorney, fixtures.image);
+    await chooseImage(page, attorney, fixtures.image, 'Attorney image');
     await fillLabelledField(page, attorney, 'Attorney image alt text', 'Final attorney image alt');
     await setLink(
       page,
@@ -558,7 +565,7 @@ test('existing Goetz blocks save, reload, and update through their native editor
     await fillLabelledField(page, cta, 'CTA eyebrow', 'Final CTA eyebrow');
     await fillLabelledField(page, cta, 'CTA heading', 'Final CTA heading');
     await fillLabelledField(page, cta, 'CTA button text', 'Final CTA button');
-    await chooseImage(page, cta, fixtures.image);
+    await chooseImage(page, cta, fixtures.image, 'CTA background image');
     await setLink(
       page,
       cta,
@@ -585,7 +592,7 @@ test('existing Goetz blocks save, reload, and update through their native editor
 
     const resources = await editorBlock(page, 'goetz/resource-links');
     await selectBlock(page, 'goetz/resource-links');
-    await chooseImage(page, resources, fixtures.image);
+    await chooseImage(page, resources, fixtures.image, 'Resource Links image');
     await fillLabelledField(
       page,
       resources,
@@ -911,8 +918,8 @@ test('Attorney Grid uses native add edit remove reorder save and reload controls
       .getByRole('button', { name: 'Add Goetz Attorney Card', exact: true })
       .click();
     await expect(names).toHaveCount(3);
-    await names.last().click();
-    await names.last().pressSequentially('Temporary Attorney');
+    await names.last().fill('Temporary Attorney');
+    await expect(names.last()).toHaveText('Temporary Attorney');
     await expect.poll(() => readAttorneyGridState(page)).toMatchObject({
       names: ['James L. Goetz', 'Gregory W. Goetz', 'Temporary Attorney'],
     });

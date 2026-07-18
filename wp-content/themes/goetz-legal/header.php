@@ -15,6 +15,18 @@ $email = (string) goetz_legal_setting('email', GOETZ_LEGAL_EMAIL);
     <meta charset="<?php bloginfo('charset'); ?>">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="profile" href="https://gmpg.org/xfn/11">
+    <script>
+        (() => {
+            const root = document.documentElement;
+            root.classList.add('is-navigation-enhanced');
+            const fallback = window.setTimeout(() => {
+                root.classList.remove('is-navigation-enhanced');
+            }, 2000);
+            window.addEventListener('goetz:navigation-ready', () => {
+                window.clearTimeout(fallback);
+            }, { once: true });
+        })();
+    </script>
     <?php wp_head(); ?>
 </head>
 <body <?php body_class('goetz-site'); ?>>

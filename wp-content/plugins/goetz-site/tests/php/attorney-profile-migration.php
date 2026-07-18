@@ -119,6 +119,54 @@ $profile = [
     'legacyEmailLabel' => 'Email Integration Attorney',
 ];
 
+$canonical_card = [
+    'blockName'    => 'goetz/attorney-card',
+    'attrs'        => [
+        'name'      => 'Integration Attorney',
+        'bio'       => 'A corrected public biography.',
+        'email'     => 'integration@example.test',
+        'imageId'   => 321,
+        'imageUrl'  => 'https://example.test/integration-attorney.jpg',
+        'imageAlt'  => 'Integration Attorney portrait',
+        'className' => 'is-style-profile',
+    ],
+    'innerBlocks'  => [],
+    'innerHTML'    => '',
+    'innerContent' => [],
+];
+$canonical_blocks = [
+    [
+        'blockName'    => 'core/group',
+        'attrs'        => [
+            'className' => 'goetz-attorney-profile-section',
+            'layout'    => ['type' => 'default'],
+        ],
+        'innerBlocks'  => [$canonical_card],
+        'innerHTML'    => '<div class="wp-block-group goetz-attorney-profile-section"></div>',
+        'innerContent' => [
+            '<div class="wp-block-group goetz-attorney-profile-section">',
+            null,
+            '</div>',
+        ],
+    ],
+    [
+        'blockName'    => 'goetz/cta',
+        'attrs'        => [],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ],
+];
+$canonical_content = Goetz\Site\Attorney_Profiles::canonical_content($profile);
+goetz_attorney_migration_assert(
+    $canonical_content === serialize_blocks($canonical_blocks),
+    'Canonical attorney content did not use the expected WordPress block serialization.'
+);
+goetz_attorney_migration_assert(
+    serialize_blocks(parse_blocks($canonical_content)) === $canonical_content,
+    'Canonical attorney content did not survive an exact WordPress parse/serialize round trip.'
+);
+
 $legacy_content = '<!-- wp:group {"className":"goetz-section","layout":{"type":"constrained"}} -->'
     . '<div class="wp-block-group goetz-section">'
     . '<!-- wp:goetz/attorney-card {"name":"Integration Attorney","email":"integration@example.test","imageUrl":"https://legacy.example/integration-attorney.jpg","imageAlt":"Integration Attorney portrait"} /-->'
@@ -142,6 +190,28 @@ update_post_meta($post_id, '_wp_page_template', 'page-templates/template-contact
 update_post_meta($post_id, '_yoast_wpseo_title', 'Preserved SEO title');
 
 try {
+    $reset_migration_fixture = static function () use ($post_id, $legacy_content): void {
+        wp_update_post(wp_slash([
+            'ID'           => $post_id,
+            'post_title'   => 'Integration Attorney',
+            'post_status'  => 'draft',
+            'post_content' => $legacy_content,
+        ]));
+        delete_post_meta($post_id, Goetz\Site\Attorney_Profiles::BACKUP_META);
+        delete_post_meta($post_id, Goetz\Site\Attorney_Profiles::VERSION_META);
+    };
+    $is_target_content_update_query = static function (string $query) use ($post_id): bool {
+        global $wpdb;
+
+        $normalized = str_replace('`', '', $query);
+        return preg_match(
+            '/^\s*UPDATE\s+' . preg_quote($wpdb->posts, '/') . '\s+SET\s+/i',
+            $normalized
+        ) === 1
+            && stripos($normalized, 'post_content') !== false
+            && preg_match('/\bID\s*=\s*[\'\"]?' . $post_id . '[\'\"]?/i', $normalized) === 1;
+    };
+
     $legacy_customizations = [
         'group class' => str_replace(
             '"className":"goetz-section"',
@@ -203,7 +273,505 @@ try {
         );
     }
 
-    wp_update_post(['ID' => $post_id, 'post_content' => $legacy_content]);
+    $reset_migration_fixture();
+    $fake_backup_success = static function ($check, $object_id, $meta_key) use ($post_id) {
+        if ((int) $object_id === $post_id && $meta_key === Goetz\Site\Attorney_Profiles::BACKUP_META) {
+            return PHP_INT_MAX;
+        }
+
+        return $check;
+    };
+    add_filter('add_post_metadata', $fake_backup_success, 999, 3);
+    try {
+        $backup_failure = Goetz\Site\Attorney_Profiles::apply_to_post($post_id, $profile);
+    } finally {
+        remove_filter('add_post_metadata', $fake_backup_success, 999);
+    }
+    goetz_attorney_migration_assert(
+        ($backup_failure['status'] ?? '') === 'error'
+            && str_contains((string) ($backup_failure['error'] ?? ''), 'backup'),
+        'Migration did not report an injected backup-write failure.'
+    );
+    goetz_attorney_migration_assert(
+        get_post_field('post_content', $post_id, 'raw') === $legacy_content
+            && ! metadata_exists('post', $post_id, Goetz\Site\Attorney_Profiles::BACKUP_META)
+            && ! metadata_exists('post', $post_id, Goetz\Site\Attorney_Profiles::VERSION_META),
+        'A failed backup write changed content or left migration metadata.'
+    );
+
+    $reset_migration_fixture();
+    $decoy_post_id = wp_insert_post([
+        'post_type'    => 'page',
+        'post_status'  => 'draft',
+        'post_title'   => 'Backup ownership decoy',
+        'post_content' => 'This page must not be touched by the attorney migration.',
+    ], true);
+    goetz_attorney_migration_assert(! is_wp_error($decoy_post_id), 'Could not create the backup ownership decoy.');
+    $decoy_post_id = (int) $decoy_post_id;
+    $decoy_meta_id = add_post_meta(
+        $decoy_post_id,
+        Goetz\Site\Attorney_Profiles::BACKUP_META,
+        $legacy_content,
+        true
+    );
+    goetz_attorney_migration_assert(
+        is_int($decoy_meta_id) && $decoy_meta_id > 0,
+        'Could not create the deceptive cross-post backup row.'
+    );
+
+    $return_cross_post_meta_id = static function ($check, $object_id, $meta_key) use (
+        $post_id,
+        $decoy_meta_id
+    ) {
+        if ((int) $object_id === $post_id && $meta_key === Goetz\Site\Attorney_Profiles::BACKUP_META) {
+            return $decoy_meta_id;
+        }
+
+        return $check;
+    };
+    add_filter('add_post_metadata', $return_cross_post_meta_id, 999, 3);
+    try {
+        $cross_post_backup = Goetz\Site\Attorney_Profiles::apply_to_post($post_id, $profile);
+    } finally {
+        remove_filter('add_post_metadata', $return_cross_post_meta_id, 999);
+    }
+
+    try {
+        goetz_attorney_migration_assert(
+            ($cross_post_backup['status'] ?? '') === 'error'
+                && str_contains((string) ($cross_post_backup['error'] ?? ''), 'backup'),
+            'Migration trusted a matching backup row owned by a different post.'
+        );
+        goetz_attorney_migration_assert(
+            get_post_field('post_content', $post_id, 'raw') === $legacy_content
+                && ! metadata_exists('post', $post_id, Goetz\Site\Attorney_Profiles::BACKUP_META)
+                && ! metadata_exists('post', $post_id, Goetz\Site\Attorney_Profiles::VERSION_META),
+            'A deceptive cross-post backup allowed the target page to change.'
+        );
+        $decoy_backup = get_metadata_by_mid('post', (int) $decoy_meta_id);
+        goetz_attorney_migration_assert(
+            is_object($decoy_backup)
+                && (int) ($decoy_backup->post_id ?? 0) === $decoy_post_id
+                && ($decoy_backup->meta_key ?? null) === Goetz\Site\Attorney_Profiles::BACKUP_META
+                && ($decoy_backup->meta_value ?? null) === $legacy_content,
+            'Migration deleted or altered a deceptive backup row owned by another post.'
+        );
+    } finally {
+        wp_delete_post($decoy_post_id, true);
+    }
+
+    $reset_migration_fixture();
+    add_post_meta($post_id, Goetz\Site\Attorney_Profiles::BACKUP_META, 'Foreign backup content', true);
+    $conflicting_backup = Goetz\Site\Attorney_Profiles::apply_to_post($post_id, $profile);
+    goetz_attorney_migration_assert(
+        ($conflicting_backup['status'] ?? '') === 'error'
+            && str_contains((string) ($conflicting_backup['error'] ?? ''), 'backup'),
+        'Migration trusted a pre-existing backup that did not match the exact original content.'
+    );
+    goetz_attorney_migration_assert(
+        get_post_field('post_content', $post_id, 'raw') === $legacy_content
+            && get_post_meta($post_id, Goetz\Site\Attorney_Profiles::BACKUP_META, true) === 'Foreign backup content'
+            && ! metadata_exists('post', $post_id, Goetz\Site\Attorney_Profiles::VERSION_META),
+        'A conflicting backup was overwritten or allowed the page migration to continue.'
+    );
+
+    $reset_migration_fixture();
+    $concurrent_content = $legacy_content
+        . '<!-- wp:paragraph --><p>Concurrent editor content survives.</p><!-- /wp:paragraph -->';
+    $inject_concurrent_change = static function ($meta_id, $object_id, $meta_key) use (
+        $post_id,
+        $concurrent_content
+    ): void {
+        if ((int) $object_id !== $post_id || $meta_key !== Goetz\Site\Attorney_Profiles::BACKUP_META) {
+            return;
+        }
+
+        global $wpdb;
+        $wpdb->update(
+            $wpdb->posts,
+            ['post_content' => $concurrent_content],
+            ['ID' => $post_id],
+            ['%s'],
+            ['%d']
+        );
+        clean_post_cache($post_id);
+    };
+    add_action('added_post_meta', $inject_concurrent_change, 10, 3);
+    try {
+        $concurrent_result = Goetz\Site\Attorney_Profiles::apply_to_post($post_id, $profile);
+    } finally {
+        remove_action('added_post_meta', $inject_concurrent_change, 10);
+    }
+    goetz_attorney_migration_assert(
+        ($concurrent_result['status'] ?? '') === 'conflict',
+        'Migration did not fail closed when the page fingerprint changed immediately before update.'
+    );
+    goetz_attorney_migration_assert(
+        get_post_field('post_content', $post_id, 'raw') === $concurrent_content
+            && ! metadata_exists('post', $post_id, Goetz\Site\Attorney_Profiles::BACKUP_META)
+            && ! metadata_exists('post', $post_id, Goetz\Site\Attorney_Profiles::VERSION_META),
+        'Concurrent editor content was overwritten or the failed migration left owned metadata.'
+    );
+
+    $reset_migration_fixture();
+    $cas_content = $legacy_content
+        . '<!-- wp:paragraph --><p>Exact compare-and-swap editor content survives.</p><!-- /wp:paragraph -->';
+    $cas_content_injected = false;
+    $inject_at_content_update = static function (string $query) use (
+        &$cas_content_injected,
+        $is_target_content_update_query,
+        $post_id,
+        $cas_content
+    ): string {
+        if ($cas_content_injected || ! $is_target_content_update_query($query)) {
+            return $query;
+        }
+
+        $cas_content_injected = true;
+        global $wpdb;
+        $wpdb->update(
+            $wpdb->posts,
+            ['post_content' => $cas_content],
+            ['ID' => $post_id],
+            ['%s'],
+            ['%d']
+        );
+        clean_post_cache($post_id);
+
+        return $query;
+    };
+    add_filter('query', $inject_at_content_update, PHP_INT_MAX);
+    try {
+        $cas_conflict = Goetz\Site\Attorney_Profiles::apply_to_post($post_id, $profile);
+    } finally {
+        remove_filter('query', $inject_at_content_update, PHP_INT_MAX);
+    }
+    goetz_attorney_migration_assert(
+        $cas_content_injected,
+        'The migration did not attempt its content write through the guarded database update path.'
+    );
+    goetz_attorney_migration_assert(
+        ($cas_conflict['status'] ?? '') === 'conflict',
+        'Migration did not report a conflict when content changed in the exact database update path.'
+    );
+    goetz_attorney_migration_assert(
+        get_post_field('post_content', $post_id, 'raw') === $cas_content
+            && ! metadata_exists('post', $post_id, Goetz\Site\Attorney_Profiles::BACKUP_META)
+            && ! metadata_exists('post', $post_id, Goetz\Site\Attorney_Profiles::VERSION_META),
+        'The database update race overwrote editor content or left migration metadata.'
+    );
+
+    $reset_migration_fixture();
+    $concurrent_title = 'Concurrent editor title survives';
+    $title_injected = false;
+    $inject_omitted_field_at_content_update = static function (string $query) use (
+        &$title_injected,
+        $is_target_content_update_query,
+        $post_id,
+        $concurrent_title
+    ): string {
+        if ($title_injected || ! $is_target_content_update_query($query)) {
+            return $query;
+        }
+
+        $title_injected = true;
+        global $wpdb;
+        $wpdb->update(
+            $wpdb->posts,
+            ['post_title' => $concurrent_title],
+            ['ID' => $post_id],
+            ['%s'],
+            ['%d']
+        );
+        clean_post_cache($post_id);
+
+        return $query;
+    };
+    add_filter('query', $inject_omitted_field_at_content_update, PHP_INT_MAX);
+    try {
+        $omitted_field_result = Goetz\Site\Attorney_Profiles::apply_to_post($post_id, $profile);
+    } finally {
+        remove_filter('query', $inject_omitted_field_at_content_update, PHP_INT_MAX);
+    }
+    goetz_attorney_migration_assert(
+        $title_injected && ($omitted_field_result['status'] ?? '') === 'updated',
+        'Migration did not complete after an editor changed a field outside the content CAS.'
+    );
+    goetz_attorney_migration_assert(
+        get_post_field('post_title', $post_id, 'raw') === $concurrent_title
+            && get_post_field('post_content', $post_id, 'raw') === $canonical_content,
+        'Migration overwrote an editor mutation to a field omitted from its content update.'
+    );
+
+    $reset_migration_fixture();
+    $cleanup_conflict_content = $legacy_content
+        . '<!-- wp:paragraph --><p>Cleanup failure content survives.</p><!-- /wp:paragraph -->';
+    $cleanup_conflict_injected = false;
+    $inject_cleanup_conflict = static function (string $query) use (
+        &$cleanup_conflict_injected,
+        $is_target_content_update_query,
+        $post_id,
+        $cleanup_conflict_content
+    ): string {
+        if ($cleanup_conflict_injected || ! $is_target_content_update_query($query)) {
+            return $query;
+        }
+
+        $cleanup_conflict_injected = true;
+        global $wpdb;
+        $wpdb->update(
+            $wpdb->posts,
+            ['post_content' => $cleanup_conflict_content],
+            ['ID' => $post_id],
+            ['%s'],
+            ['%d']
+        );
+        clean_post_cache($post_id);
+
+        return $query;
+    };
+    $block_owned_backup_cleanup = static function ($check, $meta_id) use ($post_id) {
+        $meta = get_metadata_by_mid('post', (int) $meta_id);
+        if (is_object($meta)
+            && (int) ($meta->post_id ?? 0) === $post_id
+            && ($meta->meta_key ?? null) === Goetz\Site\Attorney_Profiles::BACKUP_META) {
+            return false;
+        }
+
+        return $check;
+    };
+    add_filter('query', $inject_cleanup_conflict, PHP_INT_MAX);
+    add_filter('delete_post_metadata_by_mid', $block_owned_backup_cleanup, 999, 2);
+    try {
+        $cleanup_failure = Goetz\Site\Attorney_Profiles::apply_to_post($post_id, $profile);
+    } finally {
+        remove_filter('query', $inject_cleanup_conflict, PHP_INT_MAX);
+        remove_filter('delete_post_metadata_by_mid', $block_owned_backup_cleanup, 999);
+    }
+    goetz_attorney_migration_assert(
+        ($cleanup_failure['status'] ?? '') === 'error'
+            && str_contains(strtolower((string) ($cleanup_failure['error'] ?? '')), 'clean'),
+        'Migration did not surface an owned-backup cleanup failure.'
+    );
+    goetz_attorney_migration_assert(
+        get_post_field('post_content', $post_id, 'raw') === $cleanup_conflict_content
+            && get_post_meta($post_id, Goetz\Site\Attorney_Profiles::BACKUP_META, true) === $legacy_content
+            && ! metadata_exists('post', $post_id, Goetz\Site\Attorney_Profiles::VERSION_META),
+        'An owned-backup cleanup failure changed concurrent content or hid the retained recovery row.'
+    );
+
+    $reset_migration_fixture();
+    $database_error_injected = false;
+    $inject_content_database_error = static function (string $query) use (
+        &$database_error_injected,
+        $is_target_content_update_query
+    ): string {
+        if ($database_error_injected || ! $is_target_content_update_query($query)) {
+            return $query;
+        }
+
+        $database_error_injected = true;
+        return 'UPDATE goetz_missing_attorney_posts SET post_content = NULL';
+    };
+    global $wpdb;
+    $suppressed_errors_before = $wpdb->suppress_errors(true);
+    add_filter('query', $inject_content_database_error, PHP_INT_MAX);
+    try {
+        $database_error = Goetz\Site\Attorney_Profiles::apply_to_post($post_id, $profile);
+    } finally {
+        remove_filter('query', $inject_content_database_error, PHP_INT_MAX);
+        $wpdb->suppress_errors($suppressed_errors_before);
+    }
+    goetz_attorney_migration_assert(
+        $database_error_injected
+            && ($database_error['status'] ?? '') === 'error'
+            && ($database_error['status'] ?? '') !== 'conflict',
+        'Migration did not distinguish a content database error from a compare-and-swap conflict.'
+    );
+    goetz_attorney_migration_assert(
+        get_post_field('post_content', $post_id, 'raw') === $legacy_content
+            && ! metadata_exists('post', $post_id, Goetz\Site\Attorney_Profiles::BACKUP_META)
+            && ! metadata_exists('post', $post_id, Goetz\Site\Attorney_Profiles::VERSION_META),
+        'A content database error changed the page or left owned migration metadata.'
+    );
+
+    $reset_migration_fixture();
+    $fail_version = static function ($check, $object_id, $meta_key) use ($post_id) {
+        if ((int) $object_id === $post_id && $meta_key === Goetz\Site\Attorney_Profiles::VERSION_META) {
+            return true;
+        }
+
+        return $check;
+    };
+    add_filter('update_post_metadata', $fail_version, 999, 3);
+    try {
+        $version_failure = Goetz\Site\Attorney_Profiles::apply_to_post($post_id, $profile);
+    } finally {
+        remove_filter('update_post_metadata', $fail_version, 999);
+    }
+    goetz_attorney_migration_assert(
+        ($version_failure['status'] ?? '') === 'error'
+            && str_contains((string) ($version_failure['error'] ?? ''), 'version'),
+        'Migration did not report an injected version-marker verification failure.'
+    );
+    goetz_attorney_migration_assert(
+        get_post_field('post_content', $post_id, 'raw') === $legacy_content
+            && ! metadata_exists('post', $post_id, Goetz\Site\Attorney_Profiles::BACKUP_META)
+            && ! metadata_exists('post', $post_id, Goetz\Site\Attorney_Profiles::VERSION_META),
+        'A failed version write did not roll content and owned metadata back to the original state.'
+    );
+
+    $reset_migration_fixture();
+    $concurrent_version_content = $canonical_content
+        . '<!-- wp:paragraph --><p>Concurrent version-failure editor content survives.</p><!-- /wp:paragraph -->';
+    $concurrent_version = 77;
+    $concurrent_version_injected = false;
+    $inject_concurrent_version_failure = static function ($check, $object_id, $meta_key) use (
+        &$concurrent_version_injected,
+        $post_id,
+        $concurrent_version_content,
+        $concurrent_version
+    ) {
+        if ($concurrent_version_injected
+            || (int) $object_id !== $post_id
+            || $meta_key !== Goetz\Site\Attorney_Profiles::VERSION_META) {
+            return $check;
+        }
+
+        $concurrent_version_injected = true;
+        global $wpdb;
+        $wpdb->update(
+            $wpdb->posts,
+            ['post_content' => $concurrent_version_content],
+            ['ID' => $post_id],
+            ['%s'],
+            ['%d']
+        );
+        $wpdb->insert(
+            $wpdb->postmeta,
+            [
+                'post_id'    => $post_id,
+                'meta_key'   => Goetz\Site\Attorney_Profiles::VERSION_META,
+                'meta_value' => (string) $concurrent_version,
+            ],
+            ['%d', '%s', '%s']
+        );
+        clean_post_cache($post_id);
+        wp_cache_delete($post_id, 'post_meta');
+
+        return true;
+    };
+    add_filter('update_post_metadata', $inject_concurrent_version_failure, 999, 3);
+    try {
+        $concurrent_version_failure = Goetz\Site\Attorney_Profiles::apply_to_post($post_id, $profile);
+    } finally {
+        remove_filter('update_post_metadata', $inject_concurrent_version_failure, 999);
+    }
+    goetz_attorney_migration_assert(
+        $concurrent_version_injected
+            && ($concurrent_version_failure['status'] ?? '') === 'error'
+            && str_contains((string) ($concurrent_version_failure['error'] ?? ''), 'version'),
+        'Migration did not surface the combined concurrent mutation and version-write failure.'
+    );
+    goetz_attorney_migration_assert(
+        get_post_field('post_content', $post_id, 'raw') === $concurrent_version_content
+            && (int) get_post_meta($post_id, Goetz\Site\Attorney_Profiles::VERSION_META, true) === $concurrent_version
+            && get_post_meta($post_id, Goetz\Site\Attorney_Profiles::BACKUP_META, true) === $legacy_content,
+        'Version-failure rollback overwrote concurrent content/version state or removed its recovery backup.'
+    );
+
+    $reset_migration_fixture();
+    $concurrent_marker_only = 88;
+    $concurrent_marker_injected = false;
+    $inject_concurrent_marker_only = static function ($check, $object_id, $meta_key) use (
+        &$concurrent_marker_injected,
+        $post_id,
+        $concurrent_marker_only
+    ) {
+        if ($concurrent_marker_injected
+            || (int) $object_id !== $post_id
+            || $meta_key !== Goetz\Site\Attorney_Profiles::VERSION_META) {
+            return $check;
+        }
+
+        $concurrent_marker_injected = true;
+        global $wpdb;
+        $wpdb->insert(
+            $wpdb->postmeta,
+            [
+                'post_id'    => $post_id,
+                'meta_key'   => Goetz\Site\Attorney_Profiles::VERSION_META,
+                'meta_value' => (string) $concurrent_marker_only,
+            ],
+            ['%d', '%s', '%s']
+        );
+        wp_cache_delete($post_id, 'post_meta');
+
+        return true;
+    };
+    add_filter('update_post_metadata', $inject_concurrent_marker_only, 999, 3);
+    try {
+        $concurrent_marker_failure = Goetz\Site\Attorney_Profiles::apply_to_post($post_id, $profile);
+    } finally {
+        remove_filter('update_post_metadata', $inject_concurrent_marker_only, 999);
+    }
+    goetz_attorney_migration_assert(
+        $concurrent_marker_injected && ($concurrent_marker_failure['status'] ?? '') === 'error',
+        'Migration did not surface a concurrent version-marker write.'
+    );
+    goetz_attorney_migration_assert(
+        get_post_field('post_content', $post_id, 'raw') === $canonical_content
+            && (int) get_post_meta($post_id, Goetz\Site\Attorney_Profiles::VERSION_META, true) === $concurrent_marker_only
+            && get_post_meta($post_id, Goetz\Site\Attorney_Profiles::BACKUP_META, true) === $legacy_content,
+        'Rollback restored content across a concurrent version marker it did not own.'
+    );
+
+    $reset_migration_fixture();
+    $same_version_marker_injected = false;
+    $inject_same_version_marker = static function ($check, $object_id, $meta_key) use (
+        &$same_version_marker_injected,
+        $post_id
+    ) {
+        if ($same_version_marker_injected
+            || (int) $object_id !== $post_id
+            || $meta_key !== Goetz\Site\Attorney_Profiles::VERSION_META) {
+            return $check;
+        }
+
+        $same_version_marker_injected = true;
+        global $wpdb;
+        $wpdb->insert(
+            $wpdb->postmeta,
+            [
+                'post_id'    => $post_id,
+                'meta_key'   => Goetz\Site\Attorney_Profiles::VERSION_META,
+                'meta_value' => (string) Goetz\Site\Attorney_Profiles::VERSION,
+            ],
+            ['%d', '%s', '%s']
+        );
+        wp_cache_delete($post_id, 'post_meta');
+
+        return true;
+    };
+    add_filter('update_post_metadata', $inject_same_version_marker, 999, 3);
+    try {
+        $same_version_marker_failure = Goetz\Site\Attorney_Profiles::apply_to_post($post_id, $profile);
+    } finally {
+        remove_filter('update_post_metadata', $inject_same_version_marker, 999);
+    }
+    goetz_attorney_migration_assert(
+        $same_version_marker_injected && ($same_version_marker_failure['status'] ?? '') === 'error',
+        'Migration accepted a same-version marker without owning its exact metadata row.'
+    );
+    goetz_attorney_migration_assert(
+        get_post_field('post_content', $post_id, 'raw') === $canonical_content
+            && (int) get_post_meta($post_id, Goetz\Site\Attorney_Profiles::VERSION_META, true)
+                === Goetz\Site\Attorney_Profiles::VERSION
+            && get_post_meta($post_id, Goetz\Site\Attorney_Profiles::BACKUP_META, true) === $legacy_content,
+        'Same-version ownership failure overwrote concurrent state or removed the recovery backup.'
+    );
+
+    $reset_migration_fixture();
     $result = Goetz\Site\Attorney_Profiles::apply_to_post($post_id, $profile);
     goetz_attorney_migration_assert(
         ($result['status'] ?? '') === 'updated',

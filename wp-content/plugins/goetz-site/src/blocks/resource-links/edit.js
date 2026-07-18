@@ -195,7 +195,7 @@ export function ResourceLinksEdit({ attributes = {}, setAttributes }) {
                       <LinkControl
                         label={destinationLabel}
                         url={link.url}
-                        newTab={link.newTab !== false}
+                        newTab={link.newTab === true}
                         onChange={({ url, newTab }) =>
                           updateLink(groupIndex, linkIndex, { url, newTab })
                         }

@@ -23,4 +23,4 @@ The preferred project-level workflow is:
 - No custom post types are registered in v1.
 - Navigation mirrors the live site: Home, James L. Goetz, Gregory W. Goetz, Staff, Questions, Links, Contact.
 - Contact information is defined in `functions.php` constants and matches the live site.
-- Custom blocks are registered from `blocks/*/block.json` and use block metadata for conditional frontend assets.
+- The companion `goetz-site` plugin owns the custom Gutenberg blocks and their editor controls; the theme provides the presentation layer.

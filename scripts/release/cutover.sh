@@ -79,6 +79,11 @@ site='/www/goetzgoetz_755/public'
 private='/www/goetzgoetz_755/private'
 backup_id="${backup##*/}"
 mutation_started=0
+failure_handling=0
+# Keep recovery parent-only even though ERR inheritance is enabled for helper
+# functions: command-substitution children propagate their status without
+# touching the database or durable receipt.
+operation_shell_pid="$BASHPID"
 
 die() { printf 'remote cutover: %s\n' "$1" >&2; return 1; }
 assert_physical_dir() {
@@ -97,15 +102,34 @@ write_phase() {
   chmod 0600 "$temporary"
   mv -f -- "$temporary" "$receipt"
 }
+validate_json_status() {
+  local document="$1" allowed="$2"
+  printf '%s' "$document" | php -r '
+    $allowed = explode(",", $argv[1]);
+    $raw = stream_get_contents(STDIN);
+    $data = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
+    if (!is_array($data) || array_is_list($data) || !isset($data["status"]) || !is_string($data["status"]) || !in_array($data["status"], $allowed, true)) { exit(1); }
+  ' "$allowed"
+}
 scan_public_dumps() {
   ! find "$site" -xdev -type f \( -name '*.sql' -o -name '*.sql.gz' -o -name '*.dump' -o -name '*.bak' \
     -o -name 'release.json' -o -name 'RELEASE-MANIFEST.sha256' -o -name '.env*' \) -print -quit | grep -q .
 }
-cutover_failed() {
-  local status=$?
+handle_cutover_failure() {
+  local status="$1" failure_phase="$2"
+  if [[ "$BASHPID" != "$operation_shell_pid" ]]; then
+    trap - ERR
+    exit "$status"
+  fi
+  if (( failure_handling == 1 )); then
+    exit 97
+  fi
+  failure_handling=1
   trap - ERR
+  trap '' HUP INT TERM
   set +e
-  write_phase cutover_failed
+  (( status != 0 )) || status=1
+  write_phase "$failure_phase"
   if (( mutation_started == 1 )); then
     if wp --path="$site" db import "$backup/database.sql" &&
       [[ "$(wp --path="$site" option get home)" == "$from" ]] &&
@@ -122,12 +146,20 @@ cutover_failed() {
   fi
   exit "$status"
 }
+cutover_failed() {
+  local status=$?
+  handle_cutover_failure "$status" cutover_failed
+}
+cutover_interrupted() {
+  local signal_name="$1" status="$2"
+  handle_cutover_failure "$status" "cutover_interrupted_${signal_name,,}"
+}
 
 [[ "$from" == 'https://goetzgoetz.kinsta.cloud' && "$to" == 'https://goetzlegal.com' && "$mode" =~ ^(dry-run|apply)$ ]]
 [[ "$backup" == /www/goetzgoetz_755/private/backups/* && "$backup" != '/www/goetzgoetz_755/private/backups/' ]]
 [[ "$backup_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]
 [[ "$expected_backup_hash" =~ ^[0-9a-f]{64}$ && "$release_sha" =~ ^[0-9a-f]{40}$ && "$release_digest" =~ ^[0-9a-f]{64}$ ]]
-for command_name in wp sha256sum readlink flock find grep date mktemp; do
+for command_name in wp php sha256sum readlink flock find grep date mktemp; do
   command -v "$command_name" >/dev/null 2>&1 || die "required command unavailable: $command_name"
 done
 assert_physical_dir "$site" '/www/goetzgoetz_755/public'
@@ -160,7 +192,7 @@ mapfile -t metadata < "$backup/BACKUP-METADATA"
 current="$private/state/current-release"
 [[ -f "$current" && ! -L "$current" ]]
 mapfile -t current_lines < "$current"
-(( ${#current_lines[@]} == 7 ))
+(( ${#current_lines[@]} == 8 ))
 [[ "${current_lines[0]}" == 'schema_version=1' ]]
 [[ "${current_lines[1]}" == "release_commit=$release_sha" ]]
 [[ "${current_lines[2]}" == "release_manifest_sha256=$release_digest" ]]
@@ -178,12 +210,20 @@ fi
 mkdir -m 0700 -p "$private/operations"
 assert_physical_dir "$private/operations" '/www/goetzgoetz_755/private/operations'
 trap cutover_failed ERR
+trap 'cutover_interrupted HUP 129' HUP
+trap 'cutover_interrupted INT 130' INT
+trap 'cutover_interrupted TERM 143' TERM
 write_phase preflight_complete
 mutation_started=1
 write_phase replacing_urls
 wp --path="$site" search-replace "$from" "$to" --all-tables-with-prefix --precise
 wp --path="$site" option update home "$to"
 wp --path="$site" option update siteurl "$to"
+seo_first="$(wp --path="$site" goetz-site seo configure --strict --format=json)"
+validate_json_status "$seo_first" 'configured,noop'
+seo_noop="$(wp --path="$site" goetz-site seo configure --strict --format=json)"
+validate_json_status "$seo_noop" 'noop'
+wp --path="$site" yoast index --reindex --skip-confirmation
 wp --path="$site" rewrite flush --hard
 wp --path="$site" cache flush
 wp --path="$site" kinsta cache purge --all 2>/dev/null
@@ -191,10 +231,11 @@ wp --path="$site" kinsta cache purge --all 2>/dev/null
 [[ "$(wp --path="$site" option get siteurl)" == "$to" ]]
 scan_public_dumps
 write_phase complete
-trap - ERR
+trap - ERR HUP INT TERM
 REMOTE
 then
-  printf 'Cutover failed. Database recovery ran while holding the shared mutation lock.\n' >&2
+  printf 'Cutover failed or the transport ended unexpectedly. Recovery status is unknown until the durable remote receipt is inspected.\n' >&2
+  printf 'Inspect remote receipt: %s/operations/cutover-%s.status\n' "$GOETZ_REMOTE_PRIVATE" "$backup_id" >&2
   printf 'manager_rollback_command=./manager.sh remote:rollback --backup-id=%q --apply\n' "$backup_id" >&2
   exit 1
 fi

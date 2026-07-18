@@ -1613,6 +1613,25 @@ reset_fake_docker
 [[ ! -e "$fixture/bin/docker-record" ]] ||
   fail 'site:build invoked Docker even though the site block entrypoint is absent'
 
+redirected_env_fixture="$fixture/redirected-env"
+mkdir -p "$redirected_env_fixture"
+cp manager.sh .env.example "$redirected_env_fixture/"
+redirected_env_target="$fixture/redirected-env-target"
+redirected_env_executed="$fixture/redirected-env-executed"
+cat > "$redirected_env_target" <<ENV
+printf 'redirected env was sourced\n' > '$redirected_env_executed'
+ENV
+chmod 0644 "$redirected_env_target"
+ln -s "$redirected_env_target" "$redirected_env_fixture/.env"
+if /usr/bin/env -i \
+  HOME="$fixture/home" \
+  PATH="$fixture/bin:/usr/bin:/bin" \
+  /bin/bash "$redirected_env_fixture/manager.sh" help >/dev/null 2>&1; then
+  fail 'manager accepted a symlinked .env'
+fi
+[[ ! -e "$redirected_env_executed" ]] || fail 'manager sourced a redirected .env target'
+[[ "$(stat -c '%a' "$redirected_env_target")" == '644' ]] || fail 'manager chmod followed a redirected .env target'
+
 new_env_fixture="$fixture/new-env"
 mkdir -p "$new_env_fixture"
 cp manager.sh .env.example "$new_env_fixture/"
@@ -1624,6 +1643,10 @@ cp manager.sh .env.example "$new_env_fixture/"
     SSH_KEY_PW=never-forward-new-env-ssh-value \
     /bin/bash "$new_env_fixture/manager.sh" help >/dev/null
 )
+[[ -f "$new_env_fixture/.env" && ! -L "$new_env_fixture/.env" ]] ||
+  fail 'new synthetic .env was not created as a regular non-symlink file'
+[[ "$(readlink -f "$new_env_fixture/.env")" == "$new_env_fixture/.env" ]] ||
+  fail 'new synthetic .env does not resolve to its exact expected path'
 [[ "$(stat -c '%a' "$new_env_fixture/.env")" == '600' ]] || fail 'new synthetic .env was not created with mode 600'
 
 # Manager release dispatch is independently environment-sanitized. These fake

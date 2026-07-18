@@ -10,7 +10,10 @@ const STABLE_BLOCK_NAMES = [
     'goetz/cta',
     'goetz/faq-list',
     'goetz/hero',
+    'goetz/practice-area-item',
+    'goetz/practice-areas',
     'goetz/resource-links',
+    'goetz/welcome',
 ];
 
 /**

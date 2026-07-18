@@ -122,6 +122,11 @@ require_single_site() {
   state="$(wp --path="$site" eval 'echo is_multisite() ? "yes" : "no";')"
   [[ "$state" == 'no' ]] || die 'multisite is not supported by this release toolchain'
 }
+assert_archiveable_tree() {
+  local path="$1"
+  [[ -z "$(find "$path" -xdev ! -type d ! -type f -print -quit)" ]] ||
+    die "backup source contains an unsupported non-file entry: $path"
+}
 
 [[ "$site" == '/www/goetzgoetz_755/public' ]]
 [[ "$backup" == /www/goetzgoetz_755/private/backups/* && "$backup" != '/www/goetzgoetz_755/private/backups/' ]]
@@ -161,7 +166,8 @@ current="$private/state/current-release"
 if [[ -e "$current" || -L "$current" ]]; then
   [[ -f "$current" && ! -L "$current" ]] || die 'current release receipt is not a normal file'
   mapfile -t current_lines < "$current"
-  (( ${#current_lines[@]} == 7 )) || die 'current release receipt schema is invalid'
+  (( ${#current_lines[@]} == 7 || ${#current_lines[@]} == 8 )) ||
+    die 'current release receipt schema is invalid'
   [[ "${current_lines[0]}" == 'schema_version=1' ]]
   [[ "${current_lines[1]}" =~ ^release_commit=[0-9a-f]{40}$ ]]
   [[ "${current_lines[2]}" =~ ^release_manifest_sha256=[0-9a-f]{64}$ ]]
@@ -169,9 +175,13 @@ if [[ -e "$current" || -L "$current" ]]; then
   [[ "${current_lines[4]}" =~ ^deployed_utc=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]
   [[ "${current_lines[5]}" =~ ^debug_log_inode=(none|[0-9]+)$ ]]
   [[ "${current_lines[6]}" =~ ^debug_log_offset=[0-9]+$ ]]
+  if (( ${#current_lines[@]} == 8 )); then
+    [[ "${current_lines[7]}" =~ ^debug_log_prefix_sha256=(none|[0-9a-f]{64})$ ]]
+  fi
 fi
 if [[ "$purpose" == 'pre-domain-cutover' ]]; then
   [[ -e "$current" || -L "$current" ]] || die 'current release receipt is missing'
+  (( ${#current_lines[@]} == 8 )) || die 'pre-domain-cutover requires the current release receipt schema'
   [[ "${current_lines[1]}" == "release_commit=$release_sha" ]]
   [[ "${current_lines[2]}" == "release_manifest_sha256=$release_digest" ]]
 fi
@@ -186,7 +196,8 @@ wp --path="$site" db export "$backup/database.sql" --add-drop-table --quiet
 uploads="$site/wp-content/uploads"
 if [[ -e "$uploads" || -L "$uploads" ]]; then
   assert_physical_dir "$uploads" '/www/goetzgoetz_755/public/wp-content/uploads'
-  tar -czf "$backup/uploads.tar.gz" -C "$site" 'wp-content/uploads'
+  assert_archiveable_tree "$uploads"
+  tar --hard-dereference -czf "$backup/uploads.tar.gz" -C "$site" 'wp-content/uploads'
 else
   tar -czf "$backup/uploads.tar.gz" -T /dev/null
 fi
@@ -206,7 +217,8 @@ backup_code_root() {
   esac
   if [[ -e "$source" || -L "$source" ]]; then
     assert_physical_dir "$source" "$source"
-    tar -czf "$backup/$archive_name" -C "$site" "$relative_root"
+    assert_archiveable_tree "$source"
+    tar --hard-dereference -czf "$backup/$archive_name" -C "$site" "$relative_root"
     printf '%s\tpresent\t%s\n' "$relative_root" "$archive_name" >> "$backup/code-state.tsv"
   else
     printf '%s\tabsent\t-\n' "$relative_root" >> "$backup/code-state.tsv"
@@ -295,7 +307,7 @@ done
 ) || goetz_fail 'downloaded backup checksum verification failed'
 local_manifest_hash="$(sha256sum "$download_dir/SHA256SUMS" | cut -d' ' -f1)"
 [[ "$local_manifest_hash" == "$remote_manifest_hash" ]] || goetz_fail 'local and remote backup manifest hashes differ'
-gzip -t "$download_dir/uploads.tar.gz"
+goetz_validate_safe_tar_archive "$download_dir/uploads.tar.gz" 'wp-content/uploads'
 
 GOETZ_BACKUP_PURPOSE=''
 GOETZ_BACKUP_RELEASE_SHA=''
@@ -314,7 +326,7 @@ while IFS=$'\t' read -r relative_root state archive_name; do
     present)
       [[ "$archive_name" != '-' && -f "$download_dir/$archive_name" && ! -L "$download_dir/$archive_name" && -s "$download_dir/$archive_name" ]] ||
         goetz_fail "present code root lacks an archive: $relative_root"
-      tar -tzf "$download_dir/$archive_name" >/dev/null
+      goetz_validate_safe_tar_archive "$download_dir/$archive_name" "$relative_root"
       ;;
     absent) [[ "$archive_name" == '-' ]] || goetz_fail "absent code root has an unexpected archive: $relative_root" ;;
     *) goetz_fail "backup contains an invalid code state: $state" ;;

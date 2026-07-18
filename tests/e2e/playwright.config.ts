@@ -16,6 +16,7 @@ export default defineConfig({
     'homepage-sections.spec.ts',
     'homepage-template.spec.ts',
     'practice-animation.spec.ts',
+    'production-read-only.spec.ts',
   ],
   forbidOnly: true,
   retries: 0,

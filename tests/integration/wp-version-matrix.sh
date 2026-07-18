@@ -24,7 +24,9 @@ goetz_compat_wp() {
 }
 
 goetz_compat_full_assertions() {
+  local migration_first
   local migration_second
+  local seo_first
   local seo_second
 
   goetz_compat_wp eval-file /app/tests/fixtures/compat-site.php
@@ -43,18 +45,48 @@ goetz_compat_full_assertions() {
       }
     }
   '
-  goetz_compat_wp goetz-site migrate homepage --apply --format=json >/dev/null
-  migration_second="$(goetz_compat_wp goetz-site migrate homepage --apply --format=json)"
-  grep -Eq '"status"[[:space:]]*:[[:space:]]*"noop"' <<< "$migration_second" || {
-    echo 'Second compatibility homepage migration was not a no-op.' >&2
+  migration_first="$(goetz_compat_wp goetz-site migrate homepage --apply --format=json)" || {
+    echo 'First compatibility homepage migration command failed:' >&2
+    printf '%s\n' "$migration_first" >&2
+    return 1
+  }
+  grep -Eq '"status"[[:space:]]*:[[:space:]]*"migrated"' <<< "$migration_first" || {
+    echo 'First compatibility homepage migration did not migrate the legacy fixture:' >&2
+    printf '%s\n' "$migration_first" >&2
     return 1
   }
 
-  goetz_compat_wp goetz-site seo configure --strict --format=json >/dev/null
-  seo_second="$(goetz_compat_wp goetz-site seo configure --strict --format=json)"
+  migration_second="$(goetz_compat_wp goetz-site migrate homepage --apply --format=json)" || {
+    echo 'Second compatibility homepage migration command failed:' >&2
+    printf '%s\n' "$migration_second" >&2
+    return 1
+  }
+  grep -Eq '"status"[[:space:]]*:[[:space:]]*"noop"' <<< "$migration_second" || {
+    echo 'Second compatibility homepage migration was not a no-op.' >&2
+    printf '%s\n' "$migration_second" >&2
+    return 1
+  }
+
+  seo_first="$(goetz_compat_wp goetz-site seo configure --strict --format=json)" || {
+    echo 'First compatibility SEO configuration command failed:' >&2
+    printf '%s\n' "$seo_first" >&2
+    return 1
+  }
+  grep -Eq '"status"[[:space:]]*:[[:space:]]*"configured"' <<< "$seo_first" || {
+    echo 'First compatibility SEO configuration did not configure the fixture:' >&2
+    printf '%s\n' "$seo_first" >&2
+    return 1
+  }
+
+  seo_second="$(goetz_compat_wp goetz-site seo configure --strict --format=json)" || {
+    echo 'Second compatibility SEO configuration command failed:' >&2
+    printf '%s\n' "$seo_second" >&2
+    return 1
+  }
   grep -Eq '"changed_options"[[:space:]]*:[[:space:]]*0' <<< "$seo_second" &&
     grep -Eq '"changed_pages"[[:space:]]*:[[:space:]]*0' <<< "$seo_second" || {
       echo 'Second compatibility SEO configuration was not a no-op.' >&2
+      printf '%s\n' "$seo_second" >&2
       return 1
     }
 }

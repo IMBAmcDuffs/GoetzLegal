@@ -112,7 +112,7 @@
   }
 
   .goetz-cta > div {
-    flex: 1 1 64.6667%;
+    flex: 0 1 64.6667%;
     min-width: 0;
   }
 }

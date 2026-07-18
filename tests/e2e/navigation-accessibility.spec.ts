@@ -162,6 +162,24 @@ test('navigation accessibility resets the overlay at the 989 to 990 breakpoint',
   await expect(page.locator('body')).not.toHaveClass(/\bis-navigation-open\b/);
 });
 
+test('navigation accessibility restores the mobile fallback when the theme controller fails', async ({ page }) => {
+  await page.setViewportSize(mobileViewport);
+  let abortedControllerRequests = 0;
+  await page.route('**/wp-content/themes/goetz-legal/dist/assets/app-*.js', async (route) => {
+    abortedControllerRequests += 1;
+    await route.abort('failed');
+  });
+
+  const response = await page.goto('/', { waitUntil: 'domcontentloaded' });
+  expect(response?.ok()).toBeTruthy();
+  await expect.poll(() => abortedControllerRequests).toBeGreaterThan(0);
+  await expect(page.locator('html')).not.toHaveClass(/\bis-navigation-enhanced\b/, { timeout: 5_000 });
+  await expect(page.locator('#primary-menu-toggle')).toBeHidden();
+  await expect(page.locator('#primary-navigation')).toBeVisible();
+  await expect(page.locator('#primary-navigation').getByRole('link')).toHaveCount(7);
+  await expect(page.locator('main#primary-content')).toBeVisible();
+});
+
 test('navigation accessibility leaves the mobile navigation usable without JavaScript', async ({ browser }, testInfo) => {
   const { context, page } = await newNoScriptPage(browser, testInfo);
   try {

@@ -123,6 +123,7 @@ function initMobileNavigation(): void {
 
     setToggleState(false);
     document.documentElement.classList.add('is-navigation-enhanced');
+    window.dispatchEvent(new Event('goetz:navigation-ready'));
 }
 
 /**

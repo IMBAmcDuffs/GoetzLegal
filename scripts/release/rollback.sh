@@ -51,6 +51,10 @@ mode="$3"
 site='/www/goetzgoetz_755/public'
 private='/www/goetzgoetz_755/private'
 rollback_failure_trap_active=0
+failure_handling=0
+# Helper-function failures need ERR inheritance, but an inherited trap in a
+# command-substitution child may never write a receipt or repeat cleanup.
+operation_shell_pid="$BASHPID"
 
 die() {
   printf 'remote rollback: %s\n' "$1" >&2
@@ -109,12 +113,19 @@ validate_metadata() {
 validate_archive_entry_prefix() {
   local archive="$1"
   local prefix="$2"
-  local entry
+  local entry listing
+  tar -tzf "$archive" >/dev/null
   while IFS= read -r entry; do
     [[ -n "$entry" ]]
     [[ "$entry" != /* && "$entry" != *'/../'* && "$entry" != '../'* && "$entry" != *'/..' ]]
     [[ "$entry" == "$prefix" || "$entry" == "$prefix/"* ]]
   done < <(tar -tzf "$archive")
+  while IFS= read -r listing; do
+    case "${listing:0:1}" in
+      -|d) ;;
+      *) die "backup archive contains an unsupported entry type: $archive" ;;
+    esac
+  done < <(tar --numeric-owner --full-time --quoting-style=escape -tvzf "$archive")
 }
 state_for_root() {
   local relative_root="$1"
@@ -185,11 +196,7 @@ for required_file in active-plugins.txt must-use-plugins.txt; do
 done
 [[ "$(wc -l < "$backup/code-state.tsv")" -eq 5 ]]
 gzip -t "$backup/uploads.tar.gz"
-while IFS= read -r upload_entry; do
-  [[ -n "$upload_entry" ]]
-  [[ "$upload_entry" != /* && "$upload_entry" != *'/../'* && "$upload_entry" != '../'* && "$upload_entry" != *'/..' ]]
-  [[ "$upload_entry" == 'wp-content/uploads' || "$upload_entry" == 'wp-content/uploads/'* ]]
-done < <(tar -tzf "$backup/uploads.tar.gz")
+validate_archive_entry_prefix "$backup/uploads.tar.gz" 'wp-content/uploads'
 case "$(cat "$backup/release-state.tsv")" in
   $'present\tprevious-current-release')
     [[ -f "$backup/previous-current-release" && ! -L "$backup/previous-current-release" && -s "$backup/previous-current-release" ]]
@@ -247,16 +254,37 @@ cleanup_work() {
   fi
   [[ ! -f "$preflight_file" || -L "$preflight_file" ]] || find "$preflight_file" -delete
 }
-rollback_failed() {
-  local status=$?
+handle_rollback_failure() {
+  local status="$1"
+  if [[ "$BASHPID" != "$operation_shell_pid" ]]; then
+    trap - ERR
+    exit "$status"
+  fi
+  if (( failure_handling == 1 )); then
+    exit 97
+  fi
+  failure_handling=1
   trap - ERR
+  trap '' HUP INT TERM
   set +e
+  (( status != 0 )) || status=1
   write_phase rollback_failed_manual_intervention_required
   cleanup_work
   exit "$status"
 }
+rollback_failed() {
+  local status=$?
+  handle_rollback_failure "$status"
+}
+rollback_interrupted() {
+  local status="$2"
+  handle_rollback_failure "$status"
+}
 trap cleanup_work EXIT
 trap rollback_failed ERR
+trap 'rollback_interrupted HUP 129' HUP
+trap 'rollback_interrupted INT 130' INT
+trap 'rollback_interrupted TERM 143' TERM
 rollback_failure_trap_active=1
 
 while IFS=$'\t' read -r relative state archive target; do
@@ -348,7 +376,7 @@ for route in '/' '/james-l-goetz/' '/gregory-w-goetz/' '/staff/' '/questions/' '
   smoke_exact_route "$route"
 done
 write_phase complete
-trap - ERR
+trap - ERR HUP INT TERM
 REMOTE
 
 if (( apply == 0 )); then

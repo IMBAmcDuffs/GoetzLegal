@@ -860,8 +860,8 @@ $resource_target_states = render_block([
 ]);
 goetz_site_integration_assert(! str_contains($resource_target_states, '<em>Plain Resources</em>'), 'Resource heading is not plain text.');
 goetz_site_integration_assert(
-    preg_match('/href="https:\/\/example\.test\/legacy" target="_blank" rel="noopener noreferrer"/', $resource_target_states) === 1,
-    'Legacy Resource link did not preserve new-tab behavior.'
+    preg_match('/href="https:\/\/example\.test\/legacy"(?![^>]*target=)[^>]*>/', $resource_target_states) === 1,
+    'Legacy Resource link did not default to same-tab behavior.'
 );
 goetz_site_integration_assert(
     preg_match('/href="https:\/\/example\.test\/same"(?![^>]*target=)[^>]*>/', $resource_target_states) === 1,

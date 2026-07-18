@@ -21,6 +21,8 @@ jest.mock('@wordpress/i18n', () => ({ __: (value) => value }));
 
 import { CtaEdit, save } from '../../src/blocks/cta/edit';
 import { useBlockProps } from '@wordpress/block-editor';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { findAll, findByLabel } from './helpers';
 
 describe('CTA editor', () => {
@@ -169,6 +171,18 @@ describe('CTA editor', () => {
       )
     ).toBe('url("https://example.test/gavel.jpg")');
     expect(document.documentElement.classList.contains('goetz-cta-ready')).toBe(true);
+  });
+
+  test('keeps the reference copy-column width aligned in the editor and frontend', () => {
+    const stylesheets = [
+      resolve(__dirname, '../../blocks/cta/style.css'),
+      resolve(__dirname, '../../blocks/cta/view.css'),
+    ];
+
+    for (const stylesheet of stylesheets) {
+      const css = readFileSync(stylesheet, 'utf8');
+      expect(css).toMatch(/\.goetz-(?:editor-preview--)?cta\s*>\s*div\s*\{[^}]*flex:\s*0 1 64\.6667%;/s);
+    }
   });
 
   test('is dynamic', () => {

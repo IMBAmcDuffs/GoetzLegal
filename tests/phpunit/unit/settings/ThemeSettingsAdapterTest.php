@@ -32,6 +32,7 @@ final class ThemeSettingsAdapterTest extends TestCase
         self::assertSame('+12399362841', goetz_legal_setting('phone_e164'));
         self::assertSame('info@goetzlegal.com', goetz_legal_setting('email'));
         self::assertSame('33 Barkley Cir Ste 100, Fort Myers, FL 33907', goetz_legal_formatted_address());
+        self::assertTrue(goetz_legal_setting('copyright_dynamic_year'));
         self::assertSame(
             'https://www.google.com/maps/search/?api=1&query=33%20Barkley%20Cir%20Ste%20100%2C%20Fort%20Myers%2C%20FL%2033907',
             goetz_legal_map_url()

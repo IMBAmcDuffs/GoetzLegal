@@ -158,6 +158,12 @@ restore_work=''
 preflight_file=''
 debug_offset=0
 debug_inode='none'
+debug_prefix_hash='none'
+failure_handling=0
+# ERR inheritance is required for mutation helper functions. Command
+# substitutions inherit the trap too, so only this original shell may perform
+# recovery; a child exits with its failing status and lets the parent trap run.
+operation_shell_pid="$BASHPID"
 
 die() { printf 'remote apply: %s\n' "$1" >&2; return 1; }
 assert_physical_dir() {
@@ -272,11 +278,21 @@ cleanup_work() {
     find "$preflight_file" -delete
   fi
 }
-apply_failed() {
-  local status=$?
+handle_apply_failure() {
+  local status="$1" failure_phase="$2"
+  if [[ "$BASHPID" != "$operation_shell_pid" ]]; then
+    trap - ERR
+    exit "$status"
+  fi
+  if (( failure_handling == 1 )); then
+    exit 97
+  fi
+  failure_handling=1
   trap - ERR
+  trap '' HUP INT TERM
   set +e
-  write_phase deploy_failed
+  (( status != 0 )) || status=1
+  write_phase "$failure_phase"
   if (( mutation_started == 1 )); then
     if restore_packet; then
       write_phase auto_rollback_succeeded
@@ -287,6 +303,14 @@ apply_failed() {
   fi
   cleanup_work
   exit "$status"
+}
+apply_failed() {
+  local status=$?
+  handle_apply_failure "$status" deploy_failed
+}
+apply_interrupted() {
+  local signal_name="$1" status="$2"
+  handle_apply_failure "$status" "deploy_interrupted_${signal_name,,}"
 }
 validate_json_status() {
   local document="$1" allowed="$2"
@@ -311,13 +335,59 @@ smoke_exact_route() {
   [[ "$effective" == "$staging$route" ]] ||
     die "effective URL escaped the exact requested route: $route"
 }
+establish_debug_checkpoint() {
+  if [[ ! -e "$debug_file" && ! -L "$debug_file" ]]; then
+    ( umask 077; set -o noclobber; : > "$debug_file" ) ||
+      die 'could not safely create the debug-log checkpoint'
+  fi
+  [[ -f "$debug_file" && ! -L "$debug_file" ]] ||
+    die 'debug-log checkpoint is missing or redirected'
+  debug_offset="$(stat -c %s "$debug_file")"
+  debug_inode="$(stat -c %i "$debug_file")"
+  [[ "$debug_inode" =~ ^[0-9]+$ && "$debug_offset" =~ ^[0-9]+$ ]] ||
+    die 'debug-log checkpoint identity is invalid'
+  debug_prefix_hash="$(head -c "$debug_offset" "$debug_file" | sha256sum | cut -d' ' -f1)"
+  [[ "$debug_prefix_hash" =~ ^[0-9a-f]{64}$ ]] ||
+    die 'debug-log checkpoint prefix hash is invalid'
+  [[ -f "$debug_file" && ! -L "$debug_file" && "$(stat -c %i "$debug_file")" == "$debug_inode" ]] ||
+    die 'debug-log checkpoint changed while it was captured'
+}
+scan_debug_checkpoint() {
+  local current_inode current_size current_prefix_hash final_inode final_size final_prefix_hash
+  [[ -f "$debug_file" && ! -L "$debug_file" ]] ||
+    die 'debug-log checkpoint is missing or redirected'
+  current_inode="$(stat -c %i "$debug_file")"
+  current_size="$(stat -c %s "$debug_file")"
+  [[ "$current_inode" == "$debug_inode" ]] ||
+    die 'debug-log checkpoint inode changed during deployment'
+  (( current_size >= debug_offset )) ||
+    die 'debug-log checkpoint size regressed during deployment'
+  current_prefix_hash="$(head -c "$debug_offset" "$debug_file" | sha256sum | cut -d' ' -f1)"
+  [[ "$current_prefix_hash" == "$debug_prefix_hash" ]] ||
+    die 'debug-log checkpoint prefix changed during deployment'
+  if (( current_size > debug_offset )) &&
+    tail -c "+$((debug_offset + 1))" "$debug_file" | grep -Eq 'PHP (Fatal|Parse) error'; then
+    die 'a new PHP fatal or parse error was written during deployment'
+  fi
+  [[ -f "$debug_file" && ! -L "$debug_file" ]] ||
+    die 'debug-log checkpoint disappeared while it was scanned'
+  final_inode="$(stat -c %i "$debug_file")"
+  final_size="$(stat -c %s "$debug_file")"
+  [[ "$final_inode" == "$debug_inode" ]] ||
+    die 'debug-log checkpoint inode changed while it was scanned'
+  [[ "$final_size" == "$current_size" ]] ||
+    die 'debug-log checkpoint size changed while it was scanned'
+  final_prefix_hash="$(head -c "$debug_offset" "$debug_file" | sha256sum | cut -d' ' -f1)"
+  [[ "$final_prefix_hash" == "$debug_prefix_hash" ]] ||
+    die 'debug-log checkpoint prefix changed while it was scanned'
+}
 
 [[ "$release" == "/www/goetzgoetz_755/private/releases/$release_sha" ]]
 [[ "$backup" == /www/goetzgoetz_755/private/backups/* && "$backup" != '/www/goetzgoetz_755/private/backups/' ]]
 backup_id="${backup##*/}"
 [[ "$backup_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]
 [[ "$release_sha" =~ ^[0-9a-f]{40}$ && "$expected_backup_hash" =~ ^[0-9a-f]{64}$ && "$expected_release_hash" =~ ^[0-9a-f]{64}$ ]]
-for command_name in wp php rsync tar gzip sha256sum find readlink flock curl awk sort stat tail grep mktemp; do
+for command_name in wp php rsync tar gzip sha256sum find readlink flock curl awk sort stat head tail grep mktemp; do
   command -v "$command_name" >/dev/null 2>&1 || die "required command unavailable: $command_name"
 done
 assert_physical_dir "$site" '/www/goetzgoetz_755/public'
@@ -401,13 +471,13 @@ mkdir -p "$restore_work/uploads-packet/wp-content/uploads"
 ! find "$restore_work" -type l -print -quit | grep -q .
 
 debug_file="$site/wp-content/debug.log"
-if [[ -f "$debug_file" && ! -L "$debug_file" ]]; then
-  debug_offset="$(stat -c %s "$debug_file")"
-  debug_inode="$(stat -c %i "$debug_file")"
-fi
+establish_debug_checkpoint
 write_phase preflight_complete
 trap cleanup_work EXIT
 trap apply_failed ERR
+trap 'apply_interrupted HUP 129' HUP
+trap 'apply_interrupted INT 130' INT
+trap 'apply_interrupted TERM 143' TERM
 mutation_started=1
 write_phase syncing_code
 
@@ -463,18 +533,11 @@ write_phase verifying
 [[ "$(wp --path="$site" option get home)" == "$staging" ]]
 [[ "$(wp --path="$site" option get siteurl)" == "$staging" ]]
 scan_public_dumps
-if [[ -f "$debug_file" && ! -L "$debug_file" ]]; then
-  debug_size="$(stat -c %s "$debug_file")"
-  if (( debug_size < debug_offset )); then debug_offset=0; fi
-  if (( debug_size > debug_offset )); then
-    if tail -c "+$((debug_offset + 1))" "$debug_file" | grep -Eq 'PHP (Fatal|Parse) error'; then
-      die 'a new PHP fatal or parse error was written during deployment'
-    fi
-  fi
-fi
+scan_debug_checkpoint
 for route in '/' '/james-l-goetz/' '/gregory-w-goetz/' '/staff/' '/questions/' '/links/' '/contact/'; do
   smoke_exact_route "$route"
 done
+scan_debug_checkpoint
 
 current_tmp="$(mktemp "$private/state/.current-release.XXXXXX")"
 cat > "$current_tmp" <<STATE
@@ -485,14 +548,15 @@ backup_id=$backup_id
 deployed_utc=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 debug_log_inode=$debug_inode
 debug_log_offset=$debug_offset
+debug_log_prefix_sha256=$debug_prefix_hash
 STATE
 chmod 0600 "$current_tmp"
 mv -f -- "$current_tmp" "$private/state/current-release"
 write_phase complete
-trap - ERR
+trap - ERR HUP INT TERM
 REMOTE
 then
-  printf 'Deployment failed. Remote recovery ran while holding the shared mutation lock.\n' >&2
+  printf 'Deployment failed or the transport ended unexpectedly. Recovery status is unknown until the durable remote receipt is inspected.\n' >&2
   printf 'Inspect remote receipt: %s/operations/deploy-%s-%s.status\n' \
     "$GOETZ_REMOTE_PRIVATE" "$GOETZ_RELEASE_SHA" "$backup_id" >&2
   printf 'manager_rollback_command=./manager.sh remote:rollback --backup-id=%q --apply\n' "$backup_id" >&2

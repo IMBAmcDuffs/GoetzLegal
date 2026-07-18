@@ -151,6 +151,33 @@ goetz_validate_packet_metadata() {
   fi
 }
 
+goetz_validate_safe_tar_archive() {
+  local archive="$1"
+  local prefix="$2"
+  local entry listing
+  case "$prefix" in
+    wp-content/uploads|wp-content/themes/goetz-legal|wp-content/plugins/goetz-site|\
+    wp-content/plugins/goetz-migration|wp-content/plugins/wordpress-seo|wp-content/plugins/wpforms-lite) ;;
+    *) goetz_fail 'backup archive prefix is not allowlisted' ;;
+  esac
+  [[ -f "$archive" && ! -L "$archive" && -s "$archive" ]] ||
+    goetz_fail "backup archive is missing, empty, or redirected: $archive"
+  gzip -t "$archive" || goetz_fail "backup archive is not valid gzip data: $archive"
+  tar -tzf "$archive" >/dev/null || goetz_fail "backup archive cannot be listed: $archive"
+  while IFS= read -r entry; do
+    [[ -n "$entry" && "$entry" != /* && "$entry" != *'/../'* && "$entry" != '../'* && "$entry" != *'/..' ]] ||
+      goetz_fail "backup archive contains an unsafe path: $archive"
+    [[ "$entry" == "$prefix" || "$entry" == "$prefix/"* ]] ||
+      goetz_fail "backup archive escaped its allowlisted prefix: $archive"
+  done < <(tar -tzf "$archive")
+  while IFS= read -r listing; do
+    case "${listing:0:1}" in
+      -|d) ;;
+      *) goetz_fail "backup archive contains an unsupported entry type: $archive" ;;
+    esac
+  done < <(tar --numeric-owner --full-time --quoting-style=escape -tvzf "$archive")
+}
+
 goetz_verify_local_backup() {
   local backup_id="$1"
   local expected_purpose="${2:-}"
@@ -159,6 +186,8 @@ goetz_verify_local_backup() {
   local -a lines=()
   local expected_remote="$GOETZ_REMOTE_PRIVATE/backups/$backup_id"
   local receipt_hash
+  local relative_root state archive_name expected_archive
+  local -A seen_code_roots=()
 
   [[ -d "$local_backup" && ! -L "$local_backup" ]] || goetz_fail 'backup has not been downloaded to a normal local directory'
   [[ "$(readlink -f -- "$local_backup")" == "$(readlink -m -- "$GOETZ_LOCAL_BACKUP_ROOT/$backup_id")" ]] ||
@@ -184,6 +213,32 @@ goetz_verify_local_backup() {
   ) || goetz_fail 'local backup packet no longer matches its checksums'
   [[ "$(sha256sum "$local_backup/SHA256SUMS" | cut -d' ' -f1)" == "$receipt_hash" ]] ||
     goetz_fail 'local backup manifest digest changed after verification'
+  goetz_validate_safe_tar_archive "$local_backup/uploads.tar.gz" 'wp-content/uploads'
+  while IFS=$'\t' read -r relative_root state archive_name; do
+    case "$relative_root" in
+      wp-content/themes/goetz-legal) expected_archive='code-theme-goetz-legal.tar.gz' ;;
+      wp-content/plugins/goetz-site) expected_archive='code-plugin-goetz-site.tar.gz' ;;
+      wp-content/plugins/goetz-migration) expected_archive='code-plugin-goetz-migration.tar.gz' ;;
+      wp-content/plugins/wordpress-seo) expected_archive='code-plugin-wordpress-seo.tar.gz' ;;
+      wp-content/plugins/wpforms-lite) expected_archive='code-plugin-wpforms-lite.tar.gz' ;;
+      *) goetz_fail "backup contains an unexpected code root: $relative_root" ;;
+    esac
+    [[ ! -v "seen_code_roots[$relative_root]" ]] ||
+      goetz_fail "backup contains duplicate code state: $relative_root"
+    seen_code_roots["$relative_root"]=1
+    case "$state" in
+      present)
+        [[ "$archive_name" == "$expected_archive" ]] ||
+          goetz_fail "backup code archive name is invalid: $relative_root"
+        goetz_validate_safe_tar_archive "$local_backup/$archive_name" "$relative_root"
+        ;;
+      absent)
+        [[ "$archive_name" == '-' ]] || goetz_fail "absent code root has an unexpected archive: $relative_root"
+        ;;
+      *) goetz_fail "backup contains an invalid code state: $state" ;;
+    esac
+  done < "$local_backup/code-state.tsv"
+  (( ${#seen_code_roots[@]} == 5 )) || goetz_fail 'backup code state does not cover all five runtime roots'
   goetz_validate_packet_metadata "$local_backup/BACKUP-METADATA" "$backup_id"
   [[ "${lines[4]}" == "purpose=$GOETZ_BACKUP_PURPOSE" && "${lines[5]}" == "release_commit=$GOETZ_BACKUP_RELEASE_SHA" && "${lines[6]}" == "release_manifest_sha256=$GOETZ_BACKUP_RELEASE_DIGEST" ]] ||
     goetz_fail 'local backup receipt is not coupled to packet metadata'
