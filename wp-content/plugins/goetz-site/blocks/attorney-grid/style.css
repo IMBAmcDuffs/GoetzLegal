@@ -68,9 +68,10 @@
 
 .goetz-attorney-grid .goetz-attorney-card__body {
   padding: 25px 0 0;
-  text-align: left;
+  text-align: center;
 }
 
+.goetz-attorney-grid .goetz-attorney-card h2,
 .goetz-attorney-grid .goetz-attorney-card h3 {
   color: #212529;
   font-family: Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -90,7 +91,7 @@
 }
 
 .goetz-attorney-grid .goetz-attorney-card__links {
-  justify-content: flex-start;
+  justify-content: center;
   margin-top: 22px;
 }
 

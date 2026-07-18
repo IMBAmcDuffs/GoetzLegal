@@ -6,6 +6,7 @@ namespace Goetz\Site {
 
 const STABLE_BLOCK_NAMES = [
     'goetz/attorney-card',
+    'goetz/attorney-grid',
     'goetz/cta',
     'goetz/faq-list',
     'goetz/hero',

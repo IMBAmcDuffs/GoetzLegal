@@ -7,11 +7,25 @@ import { LinkControl } from '../../components/link-control';
 import { MediaControl } from '../../components/media-control';
 
 export function CtaEdit({ attributes = {}, setAttributes }) {
+  const settings = globalThis.goetzSiteEditorSettings || {};
+  const backgroundImageUrl =
+    typeof attributes.backgroundImageUrl === 'string' &&
+    attributes.backgroundImageUrl.trim() !== ''
+      ? attributes.backgroundImageUrl
+      : settings.ctaBackgroundUrl || '';
+  const buttonText =
+    typeof attributes.buttonText === 'string' && attributes.buttonText.trim() !== ''
+      ? attributes.buttonText
+      : settings.ctaLabel || 'Get Consultation';
+  const buttonUrl =
+    typeof attributes.buttonUrl === 'string' && attributes.buttonUrl.trim() !== ''
+      ? attributes.buttonUrl
+      : settings.ctaUrl || '/contact/';
   const blockProps = useBlockProps({
-    className: 'goetz-editor-preview goetz-editor-preview--cta',
-    style: attributes.backgroundImageUrl
+    className: 'goetz-cta goetz-editor-preview goetz-editor-preview--cta',
+    style: backgroundImageUrl
       ? {
-          '--goetz-cta-background-image': `url("${attributes.backgroundImageUrl}")`,
+          '--goetz-cta-background-image': `url("${backgroundImageUrl}")`,
         }
       : undefined,
   });
@@ -23,7 +37,7 @@ export function CtaEdit({ attributes = {}, setAttributes }) {
           <MediaControl
             label={__('CTA background image', 'goetz-site')}
             imageId={attributes.backgroundImageId || 0}
-            imageUrl={attributes.backgroundImageUrl || ''}
+            imageUrl={backgroundImageUrl}
             imageAlt=""
             showAlt={false}
             onChange={({ imageId, imageUrl }) =>
@@ -35,7 +49,7 @@ export function CtaEdit({ attributes = {}, setAttributes }) {
           />
           <LinkControl
             label={__('CTA button link', 'goetz-site')}
-            url={attributes.buttonUrl || ''}
+            url={buttonUrl}
             newTab={Boolean(attributes.buttonNewTab)}
             onChange={({ url, newTab }) =>
               setAttributes({ buttonUrl: url, buttonNewTab: newTab })
@@ -62,9 +76,9 @@ export function CtaEdit({ attributes = {}, setAttributes }) {
         />
         <RichText
           tagName="span"
-          className="goetz-editor-preview__button"
+          className="goetz-button goetz-editor-preview__button"
           aria-label={__('CTA button text', 'goetz-site')}
-          value={attributes.buttonText || ''}
+          value={buttonText}
           allowedFormats={[]}
           onChange={(buttonText) => setAttributes({ buttonText })}
         />

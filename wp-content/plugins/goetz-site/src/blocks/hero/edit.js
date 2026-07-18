@@ -8,7 +8,7 @@ import { MediaControl } from '../../components/media-control';
 
 export function HeroEdit({ attributes = {}, setAttributes }) {
   const blockProps = useBlockProps({
-    className: 'goetz-editor-preview goetz-editor-preview--hero',
+    className: 'goetz-hero goetz-editor-preview goetz-editor-preview--hero',
   });
 
   return (
@@ -36,7 +36,7 @@ export function HeroEdit({ attributes = {}, setAttributes }) {
         <div className="goetz-hero__content">
           <RichText
             tagName="p"
-            className="goetz-editor-preview__eyebrow"
+            className="goetz-hero__eyebrow goetz-editor-preview__eyebrow"
             aria-label={__('Hero eyebrow', 'goetz-site')}
             value={attributes.eyebrow || ''}
             allowedFormats={[]}
@@ -60,7 +60,7 @@ export function HeroEdit({ attributes = {}, setAttributes }) {
           />
           <RichText
             tagName="span"
-            className="goetz-editor-preview__button"
+            className="goetz-button goetz-editor-preview__button"
             aria-label={__('Hero button text', 'goetz-site')}
             value={attributes.buttonText || ''}
             allowedFormats={[]}

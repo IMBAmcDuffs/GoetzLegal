@@ -13,6 +13,7 @@ export default defineConfig({
     'settings.spec.ts',
     'gutenberg-existing-blocks.spec.ts',
     'gutenberg-welcome-block.spec.ts',
+    'homepage-sections.spec.ts',
     'practice-animation.spec.ts',
   ],
   forbidOnly: true,

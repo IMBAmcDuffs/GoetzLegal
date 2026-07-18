@@ -23,6 +23,7 @@ $background_image_id = \Goetz\Site\valid_image_attachment_id($attrs['backgroundI
 $background_url = $background_image_id > 0
     ? wp_get_attachment_image_url($background_image_id, 'full')
     : false;
+$background_image = '';
 
 if (! is_string($background_url) || $background_url === '') {
     $background_url = $scalar($attrs['backgroundImageUrl']);
@@ -31,6 +32,28 @@ if (trim($background_url) === '') {
     $background_url = function_exists('goetz_legal_asset_url')
         ? goetz_legal_asset_url('law-updates-bg.jpg', 'https://goetzlegal.com/wp-content/uploads/2022/08/law-updates-bg.jpg')
         : 'https://goetzlegal.com/wp-content/uploads/2022/08/law-updates-bg.jpg';
+}
+
+if ($background_image_id > 0) {
+    $background_image = (string) wp_get_attachment_image(
+        $background_image_id,
+        'full',
+        false,
+        [
+            'class'       => 'goetz-cta__background wp-image-' . $background_image_id,
+            'alt'         => '',
+            'aria-hidden' => 'true',
+            'loading'     => 'lazy',
+            'decoding'    => 'async',
+        ]
+    );
+}
+
+if ($background_image === '') {
+    $background_image = sprintf(
+        '<img class="goetz-cta__background" src="%1$s" alt="" aria-hidden="true" loading="lazy" decoding="async">',
+        esc_url($background_url)
+    );
 }
 
 if (trim($button_text) === '') {
@@ -52,6 +75,7 @@ $heading = \Goetz\Site\heading_markup($heading);
     'class'                     => 'goetz-cta',
     'data-goetz-cta-background' => esc_url($background_url),
 ]); ?>>
+    <?php echo $background_image; ?>
     <div>
         <p><?php echo esc_html($eyebrow); ?></p>
         <h2><?php echo $heading; ?></h2>

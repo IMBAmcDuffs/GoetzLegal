@@ -179,11 +179,19 @@ goetz_site_integration_assert(
 $localized_settings = json_decode($localized_settings_match[1], true);
 goetz_site_integration_assert(
     $localized_settings === [
-        'phoneLabel' => (string) goetz_site_get_setting('phone_display', '(239) 936-2841'),
-        'phoneUrl'   => 'tel:' . (string) goetz_site_get_setting('phone_e164', '+12399362841'),
-        'onlineUrl'  => '/contact/',
+        'phoneLabel'      => (string) goetz_site_get_setting('phone_display', '(239) 936-2841'),
+        'phoneUrl'        => 'tel:' . (string) goetz_site_get_setting('phone_e164', '+12399362841'),
+        'onlineUrl'       => '/contact/',
+        'ctaLabel'        => (string) goetz_site_get_setting('cta_label', 'Get Consultation'),
+        'ctaUrl'          => (string) goetz_site_get_setting('cta_url', '/contact/'),
+        'ctaBackgroundUrl'=> function_exists('goetz_legal_asset_url')
+            ? goetz_legal_asset_url(
+                'law-updates-bg.jpg',
+                'https://goetzlegal.com/wp-content/uploads/2022/08/law-updates-bg.jpg'
+            )
+            : 'https://goetzlegal.com/wp-content/uploads/2022/08/law-updates-bg.jpg',
     ],
-    'The editor bundle localized more than the effective public Welcome fallbacks.'
+    'The editor bundle did not localize the exact effective Welcome and CTA fallbacks.'
 );
 
 goetz_site_integration_assert(
@@ -514,6 +522,43 @@ foreach (['James L. Goetz', 'Gregory W. Goetz'] as $name) {
         "Attorney Grid child was lost or duplicated: {$name}"
     );
 }
+$default_heading_grid = do_blocks(serialize_block([
+    'blockName'    => 'goetz/attorney-grid',
+    'attrs'        => [],
+    'innerBlocks'  => [[
+        'blockName'    => 'goetz/attorney-card',
+        'attrs'        => ['name' => 'Default Heading Child'],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ]],
+    'innerHTML'    => '',
+    'innerContent' => [null],
+]));
+goetz_site_integration_assert(
+    str_contains($default_heading_grid, '>Attorneys</h2>')
+        && str_contains($default_heading_grid, '<h3>Default Heading Child</h3>'),
+    'Attorney Grid default heading context must retain the H2/H3 hierarchy.'
+);
+$blank_heading_grid = do_blocks(serialize_block([
+    'blockName'    => 'goetz/attorney-grid',
+    'attrs'        => ['heading' => '   '],
+    'innerBlocks'  => [[
+        'blockName'    => 'goetz/attorney-card',
+        'attrs'        => ['name' => 'Blank Heading Child'],
+        'innerBlocks'  => [],
+        'innerHTML'    => '',
+        'innerContent' => [],
+    ]],
+    'innerHTML'    => '',
+    'innerContent' => [null],
+]));
+goetz_site_integration_assert(
+    ! str_contains($blank_heading_grid, 'goetz-attorney-grid__heading')
+        && str_contains($blank_heading_grid, '<h2>Blank Heading Child</h2>')
+        && ! str_contains($blank_heading_grid, '<h3>'),
+    'Blank Attorney Grid headings must omit the parent H2 and promote child names to H2.'
+);
 $profile_styled_grid_card = do_blocks(serialize_block([
     'blockName'    => 'goetz/attorney-grid',
     'attrs'        => ['heading' => 'Attorneys'],
@@ -577,8 +622,10 @@ foreach (['wp-block-goetz-cta', 'goetz-cta', 'CUSTOM EYEBROW', 'READY <strong>NO
 }
 goetz_site_integration_assert(
     str_contains($cta, 'data-goetz-cta-background=')
-        && str_contains(wp_kses_post($cta), 'data-goetz-cta-background='),
-    'CTA data-backed background does not survive WordPress filtering.'
+        && str_contains(wp_kses_post($cta), 'data-goetz-cta-background=')
+        && str_contains($cta, 'class="goetz-cta__background"')
+        && str_contains(wp_kses_post($cta), 'class="goetz-cta__background"'),
+    'CTA data-backed background and decorative no-JavaScript fallback must survive WordPress filtering.'
 );
 
 $legacy_cta = render_block([
@@ -875,6 +922,11 @@ try {
     ]);
     goetz_site_integration_assert(str_contains($cta_attachment, esc_url($attachment_url)), 'CTA did not prefer its background image attachment ID.');
     goetz_site_integration_assert(! str_contains($cta_attachment, 'ignored-cta.jpg'), 'CTA did not suppress its URL fallback for a valid attachment.');
+    goetz_site_integration_assert(
+        str_contains($cta_attachment, 'class="goetz-cta__background')
+            && str_contains($cta_attachment, 'wp-image-' . $attachment_id),
+        'CTA attachment did not render an attachment-aware decorative fallback image.'
+    );
 
     $resource_attachment = render_block([
         'blockName'    => 'goetz/resource-links',

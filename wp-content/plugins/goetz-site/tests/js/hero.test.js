@@ -19,6 +19,8 @@ jest.mock('@wordpress/element', () => ({
 }));
 jest.mock('@wordpress/i18n', () => ({ __: (value) => value }));
 
+import { useBlockProps } from '@wordpress/block-editor';
+
 import { MediaControl } from '../../src/components/media-control';
 import { HeroEdit, save } from '../../src/blocks/hero/edit';
 import { findAll, findByLabel } from './helpers';
@@ -105,6 +107,9 @@ describe('Hero editor', () => {
     );
 
     expect(section.props.children.map((child) => child.type)).toEqual(['div', 'figure']);
+    expect(useBlockProps).toHaveBeenLastCalledWith({
+      className: 'goetz-hero goetz-editor-preview goetz-editor-preview--hero',
+    });
     expect(images).toEqual([
       expect.objectContaining({
         props: expect.objectContaining({

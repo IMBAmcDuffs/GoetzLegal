@@ -77,6 +77,7 @@ final class HealthTest extends TestCase
         self::assertTrue(function_exists('Goetz\\Site\\site_health_result'), 'The plugin Site Health check is missing.');
         $stableNames = [
             'goetz/attorney-card',
+            'goetz/attorney-grid',
             'goetz/cta',
             'goetz/faq-list',
             'goetz/hero',
@@ -93,6 +94,7 @@ final class HealthTest extends TestCase
         self::assertTrue(function_exists('Goetz\\Site\\site_health_result'), 'The plugin Site Health check is missing.');
         $stableNames = [
             'goetz/attorney-card',
+            'goetz/attorney-grid',
             'goetz/cta',
             'goetz/faq-list',
             'goetz/hero',
@@ -101,11 +103,25 @@ final class HealthTest extends TestCase
         self::assertSame('good', site_health_result($stableNames, true)['status']);
     }
 
+    public function test_missing_attorney_grid_can_never_report_ready(): void
+    {
+        $withoutAttorneyGrid = [
+            'goetz/attorney-card',
+            'goetz/cta',
+            'goetz/faq-list',
+            'goetz/hero',
+            'goetz/resource-links',
+        ];
+
+        self::assertSame('critical', site_health_result($withoutAttorneyGrid, true)['status']);
+    }
+
     public function test_site_health_uses_actual_wordpress_registry_state(): void
     {
         $registry = WP_Block_Type_Registry::get_instance();
         $registry->setRegisteredNames([
             'goetz/attorney-card',
+            'goetz/attorney-grid',
             'goetz/cta',
             'goetz/faq-list',
             'goetz/hero',
@@ -114,6 +130,7 @@ final class HealthTest extends TestCase
 
         $registry->setRegisteredNames([
             'goetz/attorney-card',
+            'goetz/attorney-grid',
             'goetz/cta',
             'goetz/faq-list',
             'goetz/hero',
@@ -127,6 +144,7 @@ final class HealthTest extends TestCase
         Functions\when('wp_script_is')->justReturn(false);
         WP_Block_Type_Registry::get_instance()->setRegisteredNames([
             'goetz/attorney-card',
+            'goetz/attorney-grid',
             'goetz/cta',
             'goetz/faq-list',
             'goetz/hero',

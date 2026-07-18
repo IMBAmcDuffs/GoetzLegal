@@ -85,17 +85,23 @@ describe('Attorney Card editor', () => {
     expect(findByLabel(tree, 'Attorney name').props.tagName).toBe('h2');
   });
 
-  test('uses an H3 only when the Attorney Grid provides its parent context', () => {
+  test.each([
+    ['explicit', 'Trial Attorneys', 'h3'],
+    ['default', require('../../blocks/attorney-grid/block.json').attributes.heading.default, 'h3'],
+    ['blank', '', 'h2'],
+    ['whitespace', '   ', 'h2'],
+    ['non-scalar', 42, 'h2'],
+  ])('uses the semantic name heading for %s grid context', (_case, gridHeading, tagName) => {
     const tree = AttorneyCardEdit({
       attributes: {
         className: 'is-style-profile',
         name: 'Grid Attorney',
       },
-      context: { 'goetz/attorneyGridHeading': 'Attorneys' },
+      context: { 'goetz/attorneyGridHeading': gridHeading },
       setAttributes: jest.fn(),
     });
 
-    expect(findByLabel(tree, 'Attorney name').props.tagName).toBe('h3');
+    expect(findByLabel(tree, 'Attorney name').props.tagName).toBe(tagName);
   });
 
   test('renders every current field and changes only the edited attribute', () => {

@@ -20,12 +20,14 @@ jest.mock('@wordpress/element', () => ({
 jest.mock('@wordpress/i18n', () => ({ __: (value) => value }));
 
 import { CtaEdit, save } from '../../src/blocks/cta/edit';
+import { useBlockProps } from '@wordpress/block-editor';
 import { findAll, findByLabel } from './helpers';
 
 describe('CTA editor', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     document.documentElement.classList.remove('goetz-cta-ready');
+    delete globalThis.goetzSiteEditorSettings;
     jest.resetModules();
   });
 
@@ -109,6 +111,44 @@ describe('CTA editor', () => {
     });
   });
 
+  test('previews localized blank defaults without persisting block overrides', () => {
+    globalThis.goetzSiteEditorSettings = {
+      ctaLabel: 'Schedule from Site Settings',
+      ctaUrl: '/site-settings-contact/',
+      ctaBackgroundUrl: 'https://example.test/default-gavel.jpg',
+    };
+    const attributes = {
+      buttonText: ' ',
+      buttonUrl: '',
+      backgroundImageUrl: '',
+    };
+    const setAttributes = jest.fn();
+    const tree = CtaEdit({ attributes, setAttributes });
+
+    expect(useBlockProps).toHaveBeenLastCalledWith({
+      className: 'goetz-cta goetz-editor-preview goetz-editor-preview--cta',
+      style: {
+        '--goetz-cta-background-image':
+          'url("https://example.test/default-gavel.jpg")',
+      },
+    });
+    expect(findByLabel(tree, 'CTA button text').props.value).toBe(
+      'Schedule from Site Settings'
+    );
+    expect(findByLabel(tree, 'CTA button link').props.url).toBe(
+      '/site-settings-contact/'
+    );
+    expect(findByLabel(tree, 'CTA background image').props.imageUrl).toBe(
+      'https://example.test/default-gavel.jpg'
+    );
+    expect(attributes).toEqual({
+      buttonText: ' ',
+      buttonUrl: '',
+      backgroundImageUrl: '',
+    });
+    expect(setAttributes).not.toHaveBeenCalled();
+  });
+
   test('hydrates a filtered data-backed background into the presentation property', () => {
     document.body.innerHTML = `
       <section class="goetz-cta" data-goetz-cta-background="https://example.test/gavel.jpg"></section>
@@ -121,6 +161,7 @@ describe('CTA editor', () => {
         '--goetz-cta-background-image'
       )
     ).toBe('url("https://example.test/gavel.jpg")');
+    expect(document.documentElement.classList.contains('goetz-cta-ready')).toBe(true);
   });
 
   test('is dynamic', () => {

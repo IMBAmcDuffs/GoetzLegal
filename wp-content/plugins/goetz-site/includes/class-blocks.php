@@ -26,9 +26,17 @@ final class Blocks
                 self::EDITOR_HANDLE,
                 'goetzSiteEditorSettings',
                 [
-                    'phoneLabel' => (string) \goetz_site_get_setting('phone_display', '(239) 936-2841'),
-                    'phoneUrl'   => 'tel:' . (string) \goetz_site_get_setting('phone_e164', '+12399362841'),
-                    'onlineUrl'  => '/contact/',
+                    'phoneLabel'       => (string) \goetz_site_get_setting('phone_display', '(239) 936-2841'),
+                    'phoneUrl'         => 'tel:' . (string) \goetz_site_get_setting('phone_e164', '+12399362841'),
+                    'onlineUrl'        => '/contact/',
+                    'ctaLabel'         => (string) \goetz_site_get_setting('cta_label', 'Get Consultation'),
+                    'ctaUrl'           => (string) \goetz_site_get_setting('cta_url', '/contact/'),
+                    'ctaBackgroundUrl' => function_exists('goetz_legal_asset_url')
+                        ? \goetz_legal_asset_url(
+                            'law-updates-bg.jpg',
+                            'https://goetzlegal.com/wp-content/uploads/2022/08/law-updates-bg.jpg'
+                        )
+                        : 'https://goetzlegal.com/wp-content/uploads/2022/08/law-updates-bg.jpg',
                 ]
             );
             wp_set_script_translations(self::EDITOR_HANDLE, 'goetz-site');

@@ -29,7 +29,8 @@ $is_profile = preg_match('/(?:^|\s)is-style-profile(?:\s|$)/', $class_name) === 
 $context = isset($block) && $block instanceof WP_Block && is_array($block->context)
     ? $block->context
     : [];
-$is_grid_card = array_key_exists('goetz/attorneyGridHeading', $context);
+$grid_heading = $context['goetz/attorneyGridHeading'] ?? null;
+$is_grid_card = is_scalar($grid_heading) && trim((string) $grid_heading) !== '';
 $image_id = \Goetz\Site\valid_image_attachment_id($attrs['imageId']);
 $image_html = '';
 $name_markup = esc_html($name);

@@ -10,10 +10,9 @@ export function AttorneyCardEdit({ attributes = {}, context = {}, setAttributes 
   const isProfile = /(?:^|\s)is-style-profile(?:\s|$)/.test(
     typeof attributes.className === 'string' ? attributes.className : ''
   );
-  const isGridCard = Object.prototype.hasOwnProperty.call(
-    context,
-    'goetz/attorneyGridHeading'
-  );
+  const gridHeading = context['goetz/attorneyGridHeading'];
+  const isGridCard =
+    typeof gridHeading === 'string' && gridHeading.trim() !== '';
   const blockProps = useBlockProps({
     className: [
       'goetz-editor-preview goetz-editor-preview--attorney-card goetz-attorney-card',

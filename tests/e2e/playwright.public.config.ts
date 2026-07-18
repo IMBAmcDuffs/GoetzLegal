@@ -9,7 +9,6 @@ export default defineConfig({
   testDir: '.',
   testMatch: [
     'smoke.spec.ts',
-    'homepage-sections.spec.ts',
     'practice-animation.spec.ts',
     'navigation-accessibility.spec.ts',
     'homepage-layout.spec.ts',
